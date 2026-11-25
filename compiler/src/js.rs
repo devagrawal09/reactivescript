@@ -48,6 +48,7 @@ pub enum P {
 pub enum Key {
     Ident(String),
     Str(String),
+    Computed(Box<E>),
 }
 
 #[derive(Debug, Clone)]

@@ -962,6 +962,11 @@ export default component App() {
 The name is not declared where it is read. A component sees its declaration site, not its caller (RG-7a): pass the
 value as a prop, provide it in a context, or import it.
 
+JavaScript globals are not in scope (SV-7a). For example, put `export const Number = globalThis.Number` in
+`js-globals.js` and write `import pure { Number } from "./js-globals.js"` in `.rx`
+to convert values in reactive scope. For `Math`, prefer exporting the operation you
+need, e.g. `export const floor = Math.floor`, then `import pure { floor } from "./js-globals.js"`.
+
 ```rx before
 component Row(props) { <p>{caption}</p> }
 component List(props) {

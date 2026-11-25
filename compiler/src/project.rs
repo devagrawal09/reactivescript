@@ -237,14 +237,14 @@ fn declaration_file(decls: &[JsDecl]) -> String {
     decls
         .iter()
         .map(|d| match d {
-            JsDecl::Type { text, .. } => format!("export {text}"),
+            JsDecl::Type { text, exported, .. } => format!("{}{text}", if *exported { "export " } else { "" }),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, .. } => {
+            JsDecl::Fn { name, params, generics, ptypes, ret, .. } => {
                 let ps = params.iter().enumerate().map(|(i, n)| match ptypes.get(i).and_then(|t| t.as_ref()) {
                     Some(t) => format!("{n}: {t}"),
                     None => n.clone(),
                 });
-                format!("export declare function {name}({}): {};", ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
+                format!("export declare function {name}{}({}): {};", generics.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
             }
         })
         .collect::<Vec<_>>()
@@ -550,16 +550,18 @@ impl Proj<'_> {
     fn import_decl(&mut self, d: &Decl, ind: &str) {
         let Decl::Import { names, from, line, resolved, declared, .. } = d else { return };
         let sp = d.span();
+        let is_prelude = |n: &ImportName| from == "./prelude" && builtin(&n.name);
         for n in names {
-            if builtin(&n.name) {
-                // the prelude's own (`import { log } from "./prelude"`)
+            if is_prelude(n) {
                 self.declared.remove(&n.alias);
+            } else {
+                self.declared.insert(n.alias.clone());
             }
         }
-        for n in names.iter().filter(|n| builtin(&n.name)) {
+        for n in names.iter().filter(|n| is_prelude(n)) {
             self.used.insert(n.name.clone());
         }
-        let rest: Vec<&ImportName> = names.iter().filter(|n| !builtin(&n.name)).collect();
+        let rest: Vec<&ImportName> = names.iter().filter(|n| !is_prelude(n)).collect();
         if rest.is_empty() {
             return;
         }
@@ -638,7 +640,11 @@ impl Proj<'_> {
                 ExprKind::Index { o, i, .. } => { expr(o, snap, bound, out); expr(i, snap, bound, out); }
                 ExprKind::Call { f, args } => { expr(f, snap, bound, out); args.iter().for_each(|a| expr(a, snap, bound, out)); }
                 ExprKind::Arr(items) => items.iter().for_each(|a| expr(a, snap, bound, out)),
-                ExprKind::Rec(fields) => fields.iter().for_each(|f| match f { Field::Kv { v, .. } => expr(v, snap, bound, out), Field::Spread(x) => expr(x, snap, bound, out) }),
+                ExprKind::Rec(fields) => fields.iter().for_each(|f| match f {
+                    Field::Kv { v, .. } => expr(v, snap, bound, out),
+                    Field::Computed { key, v } => { expr(key, snap, bound, out); expr(v, snap, bound, out); }
+                    Field::Spread(x) => expr(x, snap, bound, out),
+                }),
                 ExprKind::Tpl(parts) => parts.iter().for_each(|p| if let TplPart::Expr(x) = p { expr(x, snap, bound, out) }),
                 ExprKind::Catch { e, alt, .. } => { expr(e, snap, bound, out); expr(alt, snap, bound, out); }
                 ExprKind::Omit { e, .. } => expr(e, snap, bound, out),
@@ -914,6 +920,7 @@ impl Proj<'_> {
                 }
             }
             ExprKind::Peek(x) | ExprKind::Latest(x) => go!(x),
+            ExprKind::As { e: x, ty } => Code::of("(").c(go!(x)).t(" as ").c(self.ty(ty, e.span, &mut (x.span.end as usize))).t(")"),
             ExprKind::Pending(x) => Code::of("__.pending(").c(go!(x)).t(")"),
             ExprKind::Await { e: x, init, stream } => {
                 if imp {
@@ -949,7 +956,6 @@ impl Proj<'_> {
                 go!(o).t(if *opt { "?" } else { "" }).at(&dot, at)
             }
             ExprKind::Index { o, i, opt } => go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]"),
-            ExprKind::As { e, ty } => Code::of("(").c(go!(e)).t(" as ").t(ty).t(")"),   // 07 §3: the assertion is what TypeScript checks
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),
             ExprKind::Call { f, args } => {
                 let fc = go!(f);
@@ -966,6 +972,7 @@ impl Proj<'_> {
                     .map(|f| match f {
                         Field::Spread(x) => Code::of("...").c(go!(x)),
                         Field::Kv { key, v } => Code::of(&js_str(key)).t(": ").c(go!(v)),
+                        Field::Computed { key, v } => Code::of("[").c(go!(key)).t("]: ").c(go!(v)),
                     })
                     .collect();
                 Code::of("({ ").c(Code::join(fs, ", ")).t(" })")

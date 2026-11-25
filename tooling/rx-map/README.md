@@ -172,11 +172,11 @@ The exports:
 | `./graph` | `buildGraph(model, { root })` turns `rxc model`'s JSON into the graph; `addKeys(graph)` |
 | `./diff` | `diffGraphs(before, after)`, `reach(graph, id)` |
 | `./page` | `pageHTML(graph, { live })`: the whole page as a string. It works in Node and in the browser |
-| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose |
+| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose; `attach(listener)`, a view without the page (`{ post, detach }`) |
 | `./vite` | `rxMap()`: Vite dev server plugin for the live channel |
 | `./mcp` | `serveMcp(options?)`: read-only stdio MCP server |
 
-The live page speaks the trace protocol (`TRACE-CONTRACT` v0.1): every message has `source: "rx-map"` and `v: 1`
+The live page speaks the trace protocol (`TRACE-CONTRACT` v0.3): every message has `source: "rx-map"` and `v: 1`
 (a message without `v` is read as v1; another `v`, an unknown `type` and a key the map doesn't have are ignored).
 
 - From the host: `flush` (with optional `origin`, `cause`, `order`), `flight`, `reset`, `timeline`, `step`, `resume`,
@@ -189,14 +189,45 @@ The live page speaks the trace protocol (`TRACE-CONTRACT` v0.1): every message h
   coming v0.3): what the app shows right now, applied quietly. `region` is a region key (or id). A boundary in
   `fallback` / `error` looks tripped: a loading boundary in amber stripes, an errored one in rose with its error.
 
-**Pop-out:** the window button in the header opens the same live map in a window of its own. It starts from what this
-map holds and gets every host message through it; its travel, resume and select go to this map's host. Closing either
-side is safe.
+**Time travel (real host):** with a Solid that has `openView` (`solid-js/attribution`, solidjs/solid#5089), the
+timeline travels the running app, DOM included. The recorder keeps a ring of 2000 steps (one per flush; set
+`globalThis.__RX_TIMELINE_CAPACITY__` before the entry runs to change it); beside each step, the engine nodes the flush
+changed and what each showed before. `travel(n)` opens a view and pins every node changed after `n` at what it showed
+before its first change after `n`; sync derivations, render effects, `if`/`for` structure and the DOM re-derive from
+the pins. While viewing, the app is read-only: capture-phase listeners stop pointer and keyboard input on the page
+(not in the map, the devtools or the badge), and a small badge, "viewing #n — resume to interact", has a Resume
+button. The program's own work (timers, answers landing) goes on beneath and doesn't show: no `flush` is sent.
+`resume` lands it as one new step, sends `resume` (changes from the viewed seq to the new head), then that step as a
+`flush`. `step`/`resume` changes come from the recorded previews (TRACE-CONTRACT v0.5: before a key's first change,
+its value is that change's `prev`, which the host fills from Solid's record), so they are exact for every key the
+timeline has seen. `step.inexact` lists keys travel can't show exactly at that seq: a store guessed after it (Solid
+records the guess on the store's `$guess` carrier only) and every name that reads it.
+Denied: `evicted` for a seq never recorded or out of the ring, `pending` while a question is in the air, an action
+is running or a resume is still landing, `unsupported` when Solid has no `openView`. Store guesses do not rewind yet
+(see Limits).
+
+**Pop-out:** the window button in the header opens the same live map in a window of its own. It attaches to the app
+page's bridge itself (`__RX__.connect`, from `./live`), so it keeps streaming when the dock leaves the Map tab, says
+**disconnected** when the feed stops, and says hello again (and takes the new graph) after the app reloads. Without a
+bridge (fake mode) it is fed through the map that opened it. The button opens a new one after you close one.
 
 **Fake mode:** `pageHTML(graph, { fake: seed })`, or any map page with `?fake=<seed>`, runs the fake host
 (`./fake`, with `./hmr`, put into the page by `build.mjs`) in the page itself. A small HUD drives it: act (a random
 or a chosen action), auto-play, edit a module (rename, expr, type, add, remove), tick; travel and resume are the
 timeline's. `window.__RX_FAKE_LIB__` is the embedded library (`createFakeHost`, `planHmr`).
+
+- v0.4: a value can be an **error** (`error` on a snapshot value or a flush change): the token turns rose and its badge,
+  tooltip and panel say what failed. A **held** write (`held` / `released`, `snapshot.held`) gets an amber
+  "held · waiting on …" mark under its token. A tripped boundary is clickable (its tag or its "showing fallback"
+  badge): the panel says what it shows now, the error, and which names that can notify it are failing or pending. A
+  value the map got in the snapshot reads "value at open".
+- v0.5 travel: while viewing, the badge says `viewing #n of m`, the world greys, and a note says the app is read-only
+  until you resume. Before a key's first recorded change its value is that change's `prev`. A step's `inexact` keys
+  are marked "can't rewind".
+
+**Moving around:** the wheel scrolls the map (shift: sideways); ctrl / ⌘ + wheel and a trackpad pinch zoom. `F` frames
+the whole map, or fits its width when the whole would be too small to read. `/` searches: ↑ / ↓ go through the
+matches, Enter selects one and opens it in the panel.
 
 What it shows:
 
@@ -218,6 +249,16 @@ messages, `test/fake.html`, which drives the in-page fake host and checks the pa
 conformance suite in the browser, and `test/engine.html`) in headless Chromium; `--shots <dir>` also
 saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
 harness.
+
+`./conformance` has `runConformance(makeHost, graphs)` for a host whose calls return at once (the fake) and
+`runConformanceAsync` for one whose calls take time (a real app in a browser: `makeHost` and the host's calls may
+return promises). `test/real-host.mjs` runs the async suite against the real host in the shelf app in headless
+Chromium and checks the DOM under travel, read-only viewing, `inexact` and first-change `prev`. `npm test` runs it
+when `SOLID_VIEW` points at a built Solid with `openView` (a checkout or its `packages` dir), and skips it otherwise;
+it needs Playwright on `NODE_PATH`, pnpm, and this repository's compiler and runtime built. The app is
+`test/shelf-app` (the shelf template with a deterministic fake server; `?cap=N` sets the ring's capacity), copied to
+a temp dir and installed linked to this repository and to `SOLID_VIEW`. `APP=<dir>` uses an installed copy instead;
+`--shots <dir>` saves screenshots.
 
 ## MCP: let an agent inspect your app
 
@@ -275,11 +316,27 @@ to the Vite `plugins` array. Start Vite and open the app. The compiler's dev ent
 `{ hot: import.meta.hot }`. No overlay needs to be open. The server tries `localhost:3000` and `localhost:5173` by
 default; use `--dev http://localhost:3001` or `RX_DEV_URL` to override.
 
-Live tools: `live_status`, `tail`, `state`, `value`, `why`, `pending`. They read the newest connected page.
-`state` shows current values and errors, in-flight requests, tripped boundaries, running actions and recent optimistic
+Vite prints `➜ RX MCP:` with the Streamable HTTP endpoint. Use it without starting a stdio process:
+
+```json
+{ "mcp": { "rx": { "type": "remote", "url": "http://localhost:5173/__rx/mcp" } } }
+```
+
+For Claude Code (`.mcp.json`):
+
+```json
+{ "mcpServers": { "rx": { "type": "http", "url": "http://localhost:5173/__rx/mcp" } } }
+```
+
+Live tools: `live_status`, `tail`, `record`, `state`, `value`, `why`, `pending`. They read the newest connected page.
+`record start` marks that page's trace; `record stop` returns the events since the mark, in relative milliseconds.
+`tail` and `record` default to semantic changes. Use `filter: "all"` to include Solid internals.
+`state` shows current values and errors, held writes, in-flight requests, tripped boundaries, running actions and recent optimistic
 reverts. Pass a `key` to ask about one declaration or boundary. `value`, `why` and `pending` can answer before the first
-flush; `why` also includes changes and related action/revert events when recorded. `tail` defaults to 20 records out of
-the most recent 2000; pass `since` as the last received sequence number to skip older records.
+flush; `why` follows upstream changes and includes related flights and runs when recorded. `boundary(key)` adds current
+state and recent retry history. `tail` defaults to 20 records out of the most recent 5000 on the server; pass `since` as
+the last received sequence number to skip older records. Set `RXC` to the compiler binary if `rxc` is not on `PATH` for
+`check`; the tool also runs the app's `rx-tsc --noEmit` when installed and configured.
 
 Times are in milliseconds on the page's clock. These tools don't execute actions or write state, but previews (including
 action arguments) can contain application data. Keep the Vite endpoint on a trusted dev network.
@@ -295,5 +352,11 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
 - Edges into a `for` row are drawn once per site, not per row.
 - Live mode lights names, not rows: every row of a `for` shares its nodes' key, so a change in any row lights the one
   chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
-  visible in current state but isn't a Solid flush change. Real time travel and HMR plans are not implemented yet;
-  reopening the map still shows the same session's timeline and flush count.
+  visible in current state but isn't a Solid flush change. HMR plans are not implemented yet; reopening the map still
+  shows the same session's timeline and flush count.
+- Time travel: a store guess (`guess books := …`, `guess books[i].read := …`) is recorded by Solid on the store's guess
+  carrier (`books.$guess`), not on the property nodes it changed, and its confirmed landing changes nothing shown, so
+  no record names those nodes: travelling to a seq before a confirmed store guess shows the list as it is after it
+  (`step.inexact` says so). A store's first-change `prev` isn't known (its records are per property), so a store
+  has no value before its first change. All of a resume's buffered work is one step.
+  The rest are Solid's `openView` limits (08-dev-diagnostics, "Views and time travel").

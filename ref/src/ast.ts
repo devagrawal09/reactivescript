@@ -17,7 +17,8 @@ export type Expr =
   | { k: "index"; o: Expr; i: Expr; opt?: boolean }
   | { k: "call"; f: Expr; args: Expr[] }
   | { k: "arr"; items: Expr[] }
-  | { k: "rec"; fields: ({ key: string; v: Expr } | { spread: Expr })[] }
+  | { k: "rec"; fields: ({ key: string; v: Expr } | { computed: Expr; v: Expr } | { spread: Expr })[] }
+  | { k: "as"; e: Expr; ty: string }
   | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[] }   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
   | { k: "draft"; seed: Expr; body: Stmt[] }                  // ST-3: the only writes in reactive scope, to `d`
   | { k: "use"; name: string }                                 // RG-7b: the nearest provision above
@@ -26,7 +27,6 @@ export type Expr =
   | { k: "throw"; e: Expr }                                    // R-f-3: a failure; an expression in reactive scope too
   | { k: "catch"; e: Expr; name?: string; classes?: string[]; alt: Expr }
   | { k: "stylemap"; css: string; line?: number }                // 07 CSS-5: `styles = <style>…</style>` — a class map, a constant
-  | { k: "as"; e: Expr; type: string }                           // 07 §3: `e as T` — a type assertion, erased at run time; the projection keeps it
   | { k: "serverfn"; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[] };   // 12 SF-1d: `server fn (a) { … }`, an expression — for a wrapper (`GET(server fn …)`)   // R-f-4: `e catch (x: A | B) => alt`; classes absent: every failure
 
 export type Target = { name: string; path: (string | Expr)[]; ctx?: boolean };   // ctx: `use name` — a provided source (RG-7, O-4)

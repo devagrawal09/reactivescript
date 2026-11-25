@@ -990,6 +990,8 @@ dependencies = [
 name = "reactivescript"
 version = "0.3.1"
 dependencies = [
+ "dragonbox_ecma",
+ "htmlize",
  "indexmap",
  "napi",
  "napi-build",

@@ -6,9 +6,32 @@
 //! `tracked` (reactive scope, SC-1), `snapshot` (imperative scope SC-2, `peek` E-5, a seed E-4, a value parameter's
 //! argument E-10) or `pre` (C-2), and a `probe` under `latest` / `pending?` (R-9, R-12).
 
-use crate::ast::{Decl, Markup, MarkupKind, Program};
+use crate::ast::{Decl, ExprKind, Lit, Markup, MarkupKind, Program};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+const OUTLINE_LIMIT: usize = 400;
+pub fn outline_block(tag: &str) -> bool {
+    matches!(tag, "address" | "article" | "aside" | "blockquote" | "dd" | "details" | "dialog" | "div" | "dl" | "dt" | "fieldset" | "figcaption" | "figure" | "footer" | "form" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "header" | "hgroup" | "hr" | "li" | "main" | "menu" | "nav" | "ol" | "p" | "pre" | "section" | "summary" | "table" | "tbody" | "td" | "th" | "thead" | "tfoot" | "tr" | "ul")
+}
+pub fn outline_hidden(tag: &str) -> bool { matches!(tag, "style" | "script") }
+fn outline_text(s: &str) -> String {
+    // Decode only terminated entities, matching the reference's strict mode.
+    static ENTITY: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"&(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9A-Fa-f]+);").unwrap());
+    static SPACE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"[\t\n\r\x0c \u{a0}]+").unwrap());
+    let text = ENTITY.replace_all(s, |m: &regex::Captures| htmlize::unescape_attribute(&m[0]).into_owned());
+    SPACE.replace_all(&text, " ").into_owned()
+}
+
+#[derive(Debug, Clone)]
+pub enum OutlinePart {
+    Text(String),
+    Attr(String, String),
+    Site(usize),
+    Region(usize),
+    Br,
+}
 
 /// A module's key part: its POSIX path relative to `root` (the project root), or the path as the loader has it.
 pub fn module_key(path: &str, root: Option<&str>) -> String {
@@ -120,6 +143,8 @@ pub struct ModelRegion {
     pub kind: &'static str,
     pub parent: Option<usize>,
     pub name: Option<String>,
+    outline: Vec<(OutlinePart, Option<usize>)>,
+    clipped: bool,
 }
 #[derive(Debug, Clone)]
 pub struct ModelSymbol {
@@ -159,6 +184,7 @@ pub struct ModelBuilder {
     cur: Option<usize>,
     pub snap: usize,
     pub probe: Option<&'static str>,
+    pub hide_outline: usize,
 }
 
 const READ_KINDS: &[&str] = &["source", "eq", "props", "context"];
@@ -166,7 +192,53 @@ const CALL_KINDS: &[&str] = &["fn", "action", "server", "import"];
 
 impl ModelBuilder {
     pub fn region(&mut self, id: usize, kind: &'static str, parent: Option<usize>, name: Option<String>) {
-        self.regions.push(ModelRegion { id, kind, parent, name });
+        self.regions.push(ModelRegion { id, kind, parent, name, outline: vec![], clipped: false });
+    }
+    pub fn outline(&mut self, region: usize, mut part: OutlinePart, line: Option<usize>) {
+        use OutlinePart::*;
+        let r = &mut self.regions[region];
+        if self.hide_outline != 0 || r.clipped { return; }
+        let out = &mut r.outline;
+        match &mut part {
+            Br => {
+                if let Some((Text(text), _)) = out.last_mut() {
+                    if text.ends_with(' ') { text.pop(); }
+                    if text.is_empty() { out.pop(); }
+                }
+                if out.last().is_none_or(|(prev, _)| matches!(prev, Br)) { return; }
+            }
+            Text(text) => {
+                *text = outline_text(text);
+                if out.last().is_none_or(|(prev, _)| matches!(prev, Br)) && text.starts_with(' ') { text.remove(0); }
+                if text.is_empty() { return; }
+                if let Some((Text(prev), _)) = out.last_mut() {
+                    if prev.ends_with(' ') && text.starts_with(' ') { text.remove(0); }
+                    prev.push_str(text);
+                    return;
+                }
+            }
+            _ => {}
+        }
+        if out.len() >= OUTLINE_LIMIT && !matches!(part, Br) {
+            out.truncate(OUTLINE_LIMIT);
+            r.clipped = true;
+            out.push((Text("…".into()), None));
+        } else { out.push((part, line)); }
+    }
+    pub fn view_attr(&mut self, region: usize, attr: &str, e: &ExprKind, line: usize) {
+        if self.hide_outline != 0 { return; }
+        if let ExprKind::Lit(lit) = e {
+            if !matches!(attr, "placeholder" | "title" | "alt" | "aria-label" | "value") { return; }
+            let text = match lit {
+                Lit::Str(s) => outline_text(s),
+                Lit::Num(n) => if *n == 0.0 { "0".into() } else { dragonbox_ecma::Buffer::new().format(*n).into() },
+                _ => return,
+            };
+            let text = text.trim_matches(' ');
+            if !text.is_empty() { self.outline(region, OutlinePart::Attr(attr.into(), text.into()), Some(line)); }
+        } else {
+            self.outline(region, OutlinePart::Site(self.computations.len()), Some(line));
+        }
     }
     /// A symbol bound (`kind` "value" is not one).
     pub fn sym(&mut self, index: usize, kind: &str) {
@@ -241,6 +313,23 @@ impl ModelBuilder {
                 if let Some(n) = &r.name {
                     m.insert("name".into(), json!(n));
                 }
+                let mut outline = r.outline.as_slice();
+                while let Some((part, _)) = outline.last() {
+                    if matches!(part, OutlinePart::Br) || matches!(part, OutlinePart::Text(t) if t == " ") {
+                        outline = &outline[..outline.len() - 1];
+                    } else { break; }
+                }
+                m.insert("outline".into(), Value::Array(outline.iter().enumerate().map(|(i, (part, line))| {
+                    let mut value = match part {
+                        OutlinePart::Text(t) => json!({"text": if i + 1 == outline.len() { t.trim_end_matches(' ') } else { t.as_str() }}),
+                        OutlinePart::Attr(attr, text) => json!({"attr": attr, "text": text}),
+                        OutlinePart::Site(site) => json!({"site": site}),
+                        OutlinePart::Region(region) => json!({"region": region}),
+                        OutlinePart::Br => json!({"br": true}),
+                    };
+                    if let Some(line) = line { value["line"] = json!(line); }
+                    value
+                }).collect()));
                 Value::Object(m)
             })
             .collect();

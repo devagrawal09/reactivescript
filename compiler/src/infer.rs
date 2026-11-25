@@ -304,7 +304,7 @@ impl<'o> Walker<'o> {
                 self.read(l, st, sh, local, depth);
                 self.read(r, st, sh, local, depth);
             }
-            ExprKind::Un { e, .. } | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) | ExprKind::As { e, .. } => self.read(e, st, sh, local, depth),
+            ExprKind::Un { e, .. } | ExprKind::As { e, .. } | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => self.read(e, st, sh, local, depth),
             ExprKind::Await { e, init, .. } => {
                 self.read(e, st, sh, local, depth);
                 if let Some(i) = init {
@@ -332,6 +332,7 @@ impl<'o> Walker<'o> {
                 for f in fields {
                     match f {
                         Field::Kv { v, .. } => self.read(v, st, sh, local, depth),
+                        Field::Computed { key, v } => { self.read(key, st, sh, local, depth); self.read(v, st, sh, local, depth); }
                         Field::Spread(e) => self.read(e, st, sh, local, depth),
                     }
                 }
@@ -395,7 +396,7 @@ impl<'o> Walker<'o> {
                 self.deps(l, st, sh, out);
                 self.deps(r, st, sh, out);
             }
-            ExprKind::Un { e, .. } | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) | ExprKind::As { e, .. } => self.deps(e, st, sh, out),
+            ExprKind::Un { e, .. } | ExprKind::As { e, .. } | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => self.deps(e, st, sh, out),
             ExprKind::If { c, t, f } => {
                 self.deps(c, st, sh, out);
                 self.deps(t, st, sh, out);
@@ -417,6 +418,7 @@ impl<'o> Walker<'o> {
                 for f in fields {
                     match f {
                         Field::Kv { v, .. } => self.deps(v, st, sh, out),
+                        Field::Computed { key, v } => { self.deps(key, st, sh, out); self.deps(v, st, sh, out); }
                         Field::Spread(e) => self.deps(e, st, sh, out),
                     }
                 }

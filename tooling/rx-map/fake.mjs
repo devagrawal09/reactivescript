@@ -594,7 +594,7 @@ function clone(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
 
 /**
  * @param {object} graph a `buildGraph` result (keys already applied)
- * @param {{ seed?: number, rate?: number, capacity?: number }} [opts]
+ * @param {{ seed?: number, rate?: number, capacity?: number, failRate?: number }} [opts]
  *   `rate` is ticks between automatic actions (default 0: only `act` fires one). `capacity` is the timeline
  *   ring (default 2000). Same seed and the same calls produce the same messages.
  * @returns {{ post: Function, subscribe: Function, tick: Function, act: Function, editModule: Function, dispose: Function }}
@@ -604,6 +604,9 @@ export function createFakeHost(graph, opts = {}) {
   const seed = opts.seed ?? 1;
   const rate = opts.rate ?? 0;
   const capacity = opts.capacity ?? 2000;
+  // v0.4: a share of answers fail (`failRate`, default 0, so seeds and the suite are unchanged): the node's flush change
+  // carries `error` and no `preview`
+  const failRate = opts.failRate ?? 0;
   const rng = mulberry32(seed);
 
   let g = clone(graph);
@@ -810,7 +813,13 @@ export function createFakeHost(graph, opts = {}) {
   }
 
   function valuesAt(seqN) {
-    const m = new Map(base);
+    // before a key's first recorded change, its value is that change's `prev` (TRACE-CONTRACT §4b)
+    const m = new Map(base), seen = new Set(base.keys());
+    for (const s of steps) for (const c of s.changes) {
+      if (c.key == null || seen.has(c.key)) continue;
+      seen.add(c.key);
+      if (c.prev !== undefined) m.set(c.key, c.prev);
+    }
     for (const s of steps) {
       if (s.seq > seqN) break;
       for (const c of s.changes) {
@@ -1104,6 +1113,9 @@ export function createFakeHost(graph, opts = {}) {
     if (held.length || refreshHeld.length) {
       const delay = 2 + Math.floor(rng() * 3);
       holds.push({ landTick: tickCount + delay, writes: held, refresh: refreshHeld, cause: action.key, origin });
+      // v0.4: the written-but-held sources, and what they wait on (what the action awaits: its calls, else itself)
+      const by = g.edges.filter(e => e.from === action.id && e.type === "call").map(e => byId.get(e.to)?.key).filter(Boolean);
+      for (const w of held) emit({ type: "held", key: w.node.key, by: by.length ? [...new Set(by)] : [action.key], at: clock });
     }
   }
 
@@ -1120,6 +1132,13 @@ export function createFakeHost(graph, opts = {}) {
         if (c) changes.push(c);
       }
       commitFlush(changes, { cause: f.node.key, origin: `flight ${f.node.name}` });
+      return;
+    }
+    if (failRate > 0 && rng() < failRate) {
+      emit({ type: "flight", key: f.node.key, state: "land", at: clock });
+      const c = { key: f.node.key, name: f.node.name, error: `ServerError: ${f.node.name} failed (503)` };
+      if (shown.has(f.node.key)) c.prev = shown.get(f.node.key);
+      commitFlush([c], { cause: f.node.key, origin: `flight ${f.node.name}` });
       return;
     }
     const trial = evalNode(f.node, "land");
@@ -1145,6 +1164,7 @@ export function createFakeHost(graph, opts = {}) {
         values.set(w.node.key, w.value);
       }
       propagateWithPrev(writes.map(w => w.node), { cause: h.cause, origin: h.origin }, prevs);
+      for (const w of writes) emit({ type: "released", key: w.node.key, at: clock });
       for (const n of h.refresh) scheduleFlight(n, { cause: h.cause, origin: h.origin });
     }
     const dueF = [...inFlight.values()].filter(f => f.landTick <= tickCount).sort((a, b) => a.node.key < b.node.key ? -1 : 1);

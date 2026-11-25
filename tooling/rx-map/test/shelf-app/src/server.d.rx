@@ -1,0 +1,4 @@
+export type Book = { id: string; title: string; author: string; read: boolean }
+export pure fn load(): Promise<Book[]>
+export fn save(book: Book): Promise<Book>
+export fn newId(): string

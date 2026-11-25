@@ -1,0 +1,26 @@
+component Label(props: { children: View }) {
+  <span>{props.children}</span>
+}
+
+export default component App() {
+  source count := 42
+  rows = ["Ada", "Grace"]
+  <style>.outline { color: red }</style>
+  <main>
+    <h1>Clicks: {count} &amp; &#x32;!</h1>
+    <p>More <em>text</em> &nbsp; &copy; &notit;
+      on two lines.</p>
+    <input placeholder="Enter   &quot;name&quot;" value={count} title="A title" aria-label="The count" />
+    <img alt="Picture &#169;" src="elsewhere" />
+    <meter value={42} />
+    <script>DO NOT INCLUDE 42</script>
+    {if count > 10 {
+      <p>Milestone reached: {count} clicks!</p>
+      {for name in rows { <p>Hello {name}</p> }}
+    } else { <p>Keep going!</p> }}
+    {errored fallback(e) { <p>Error: {e.message}</p> } {
+      {loading on(count) fallback { <p>Wait a moment</p> } { <p>Ready: {count}</p> }}
+    }}
+    <Label>Given by caller</Label>
+  </main>
+}

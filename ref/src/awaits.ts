@@ -14,6 +14,7 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
   const out: Hoisted[] = [];
   const walk = (x: Expr, tail: boolean, g: Guard[]): void => {
     switch (x.k) {
+      case "rec": for (const f of x.fields) { if ("computed" in f) walk(f.computed, false, g); walk("spread" in f ? f.spread : f.v, false, g); } return;
       case "await": if (!tail) out.push({ node: x, guards: g }); walk(x.e, false, g); if (x.init) walk(x.init, false, g); return;
       case "if": walk(x.c, false, g); walk(x.t, tail, [...g, { e: x.c }]); walk(x.f, tail, [...g, { e: x.c, neg: true }]); return;
       case "bin":
@@ -61,6 +62,7 @@ export function innerCatches(root: Expr): HoistedCatch[] {
   const hasAwait = (x: unknown): boolean => { if (!x || typeof x !== "object") return false; if (Array.isArray(x)) return x.some(hasAwait); const o = x as Record<string, unknown>; if (o.k === "fn") return false; if (o.k === "await" || o.k === "pre") return true; return Object.values(o).some(hasAwait); };
   const walk = (x: Expr, root: boolean, g: Guard[]): void => {
     switch (x.k) {
+      case "rec": for (const f of x.fields) { if ("computed" in f) walk(f.computed, false, g); walk("spread" in f ? f.spread : f.v, false, g); } return;
       case "catch": if (root) { walk(x.e, false, g); walk(x.alt, false, g); } else if (!hasAwait(x)) out.push({ node: x, guards: g }); return;
       case "if": walk(x.c, false, g); walk(x.t, false, [...g, { e: x.c }]); walk(x.f, false, [...g, { e: x.c, neg: true }]); return;
       case "bin":

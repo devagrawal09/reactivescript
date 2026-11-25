@@ -88,10 +88,18 @@ export function partitionErrors(plan, oldGraph, newGraph) {
 }
 
 function reconstruct(steps, n) {
-  const m = new Map();
+  // Before a key's first change, its value is that change's `prev` (§4b).
+  const m = new Map(), seen = new Set();
+  for (const s of steps) for (const c of s.changes ?? []) {
+    if (c.key == null || seen.has(c.key)) continue;
+    seen.add(c.key);
+    if (c.prev !== undefined) m.set(c.key, c.prev);
+  }
   for (const s of steps) {
     if (s.seq > n) break;
     for (const c of s.changes ?? []) {
+      // keyed nodes only: a change with no key is shown in the flush but is no state travel restores (§1, §2 step)
+      if (c.key == null) continue;
       if (c.preview === undefined) m.delete(c.key);
       else m.set(c.key, c.preview);
     }
@@ -102,6 +110,7 @@ function reconstruct(steps, n) {
 function applyChanges(map, changes) {
   const next = new Map(map);
   for (const c of changes ?? []) {
+    if (c.key == null) continue;
     if (c.preview === undefined) next.delete(c.key);
     else next.set(c.key, c.preview);
   }
@@ -128,6 +137,32 @@ function diffKeys(a, b) {
  * @returns {{ ok: boolean, check: string, graph?: string, detail?: string }[]}
  */
 export function runConformance(makeHost, graphs, opts = {}) {
+  return drive(makeHost, graphs, opts, run => {
+    for (let it = run.next(); !it.done; it = run.next(it.value));
+  });
+}
+
+/**
+ * The same suite for a host whose calls take time (a real app in a browser): `makeHost` and the host's `post`,
+ * `act`, `tick`, `editModule` and `dispose` may return promises, and messages a call caused must have reached
+ * `subscribe`'s listeners by the time its promise settles.
+ * @returns {Promise<{ ok: boolean, check: string, graph?: string, detail?: string }[]>}
+ */
+export async function runConformanceAsync(makeHost, graphs, opts = {}) {
+  const runs = [];
+  const results = drive(makeHost, graphs, opts, run => runs.push(run));
+  for (const run of runs) {
+    // a rejected call throws where the suite made it, so the check that made it reports it
+    for (let it = run.next(); !it.done;) {
+      let value, error, failed = false;
+      try { value = await it.value; } catch (e) { error = e; failed = true; }
+      it = failed ? run.throw(error) : run.next(value);
+    }
+  }
+  return results;
+}
+
+function drive(makeHost, graphs, opts, start) {
   const results = [];
   const seed = opts.seed ?? 1;
   const push = (ok, check, graph, detail) => results.push(detail ? { ok, check, graph, detail } : { ok, check, graph });
@@ -145,31 +180,33 @@ export function runConformance(makeHost, graphs, opts = {}) {
 
   for (const graph of graphs ?? []) {
     const label = graphLabel(graph);
-    try { checkOne(makeHost, graph, label, seed, push); }
-    catch (e) { push(false, "host threw", label, e?.message ?? String(e)); }
+    start((function* () {
+      try { yield* checkOne(makeHost, graph, label, seed, push); }
+      catch (e) { push(false, "host threw", label, e?.message ?? String(e)); }
+    })());
   }
   return results;
 }
 
-function checkOne(makeHost, graph, label, seed, push) {
+function* checkOne(makeHost, graph, label, seed, push) {
   const hostOpts = { seed, rate: 0, capacity: 2000 };
-  const host = makeHost(graph, hostOpts);
+  const host = yield makeHost(graph, hostOpts);
   const msgs = [];
   host.subscribe(m => msgs.push(m));
   try {
-    host.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });
+    yield host.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });
     const beforeUnknown = msgs.length;
-    host.post({ type: "definitely-unknown", want: [] });
+    yield host.post({ type: "definitely-unknown", want: [] });
     if (msgs.length !== beforeUnknown) push(false, "unknown types ignored", label, "host emitted a message for an unknown view message");
     else push(true, "unknown types ignored", label, "host ignored an unknown view message");
 
     for (let i = 0; i < 5; i++) {
-      host.act();
-      host.tick(8);
+      yield host.act();
+      yield host.tick(8);
     }
   } catch (e) {
     push(false, "host threw", label, e?.message ?? String(e));
-    host.dispose?.();
+    yield host.dispose?.();
     return;
   }
 
@@ -229,10 +266,10 @@ function checkOne(makeHost, graph, label, seed, push) {
   push(flightDouble, "no double flight start", label, flightDoubleDetail || undefined);
 
   // Two hosts that see the same calls. Travel must not depend on which path you took.
-  const script = h => {
-    h.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });
-    for (let i = 0; i < 4; i++) { h.act(); h.tick(8); }
-    h.tick(12);
+  const script = function* (h) {
+    yield h.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });
+    for (let i = 0; i < 4; i++) { yield h.act(); yield h.tick(8); }
+    yield h.tick(12);
   };
   const collect = h => {
     const box = [];
@@ -242,30 +279,30 @@ function checkOne(makeHost, graph, label, seed, push) {
 
   // Pending: an action that opens a flight must deny travel until it lands.
   try {
-    const pHost = makeHost(graph, hostOpts);
+    const pHost = yield makeHost(graph, hostOpts);
     const pMsgs = collect(pHost);
-    pHost.act();
+    yield pHost.act();
     const opened = pMsgs.some(m => m.type === "flight" && m.state === "start");
     const nPending = pMsgs.length;
-    pHost.post({ type: "travel", to: 1 });
+    yield pHost.post({ type: "travel", to: 1 });
     const pendingReply = pMsgs.slice(nPending).find(m => m.type === "step" || m.type === "travel-denied");
     if (opened) {
       const ok = pendingReply?.type === "travel-denied" && pendingReply.reason === "pending";
       push(ok, "travel pending while a flight is open", label, ok ? undefined : `got ${pendingReply?.type ?? "nothing"} ${pendingReply?.reason ?? ""}`);
     } else push(true, "travel pending while a flight is open", label, "no flight opened");
-    pHost.dispose?.();
+    yield pHost.dispose?.();
   } catch (e) {
     push(false, "travel pending while a flight is open", label, e?.message ?? String(e));
   }
 
   let travelHost, travelMsgs;
   try {
-    travelHost = makeHost(graph, hostOpts);
+    travelHost = yield makeHost(graph, hostOpts);
     travelMsgs = collect(travelHost);
-    script(travelHost);
+    yield* script(travelHost);
   } catch (e) {
     push(false, "travel matches replay", label, e?.message ?? String(e));
-    host.dispose?.();
+    yield host.dispose?.();
     return;
   }
   const liveFlushes = () => travelMsgs.filter(m => m.type === "flush");
@@ -282,7 +319,7 @@ function checkOne(makeHost, graph, label, seed, push) {
     const mid = Math.max(1, Math.ceil(head / 2));
     const fromBefore = head;
     const n = travelMsgs.length;
-    travelHost.post({ type: "travel", to: mid });
+    yield travelHost.post({ type: "travel", to: mid });
     const step = travelMsgs.slice(n).find(m => m.type === "step" || m.type === "travel-denied");
     if (!step || step.type !== "step") {
       push(false, "travel matches replay", label, step ? `denied: ${step.reason}` : "no step");
@@ -320,52 +357,52 @@ function checkOne(makeHost, graph, label, seed, push) {
     const n1 = Math.max(1, Math.min(mid, n2));
     let directOk = false, directDetail = "";
     try {
-      const path = makeHost(graph, hostOpts);
+      const path = yield makeHost(graph, hostOpts);
       const pathMsgs = collect(path);
-      script(path);
+      yield* script(path);
       const pathSteps = pathMsgs.filter(m => m.type === "flush").sort((a, b) => a.seq - b.seq);
       const pathHead = pathSteps.reduce((h, f) => Math.max(h, f.seq), 0);
       const p1 = pathMsgs.length;
-      path.post({ type: "travel", to: n1 });
+      yield path.post({ type: "travel", to: n1 });
       const s1 = pathMsgs.slice(p1).find(m => m.type === "step");
       const p2 = pathMsgs.length;
-      path.post({ type: "travel", to: n2 });
+      yield path.post({ type: "travel", to: n2 });
       const s2 = pathMsgs.slice(p2).find(m => m.type === "step");
       let shownA = reconstruct(pathSteps, pathHead);
       if (s1?.type === "step") shownA = applyChanges(shownA, s1.changes);
       if (s2?.type === "step") shownA = applyChanges(shownA, s2.changes);
 
-      const other = makeHost(graph, hostOpts);
+      const other = yield makeHost(graph, hostOpts);
       const otherMsgs = collect(other);
-      script(other);
+      yield* script(other);
       const otherSteps = otherMsgs.filter(m => m.type === "flush").sort((a, b) => a.seq - b.seq);
       const otherHead = otherSteps.reduce((h, f) => Math.max(h, f.seq), 0);
       const oN = otherMsgs.length;
-      other.post({ type: "travel", to: n2 });
+      yield other.post({ type: "travel", to: n2 });
       const direct = otherMsgs.slice(oN).find(m => m.type === "step");
       let shownB = reconstruct(otherSteps, otherHead);
       if (direct?.type === "step") shownB = applyChanges(shownB, direct.changes);
       directOk = s1?.type === "step" && s2?.type === "step" && direct?.type === "step"
         && mapsEqual(shownA, shownB) && mapsEqual(shownB, reconstruct(otherSteps, n2));
       if (!directOk) directDetail = !direct ? "no step" : !s1 || !s2 ? "path missing a step" : "shown state differs";
-      path.dispose?.();
-      other.dispose?.();
+      yield path.dispose?.();
+      yield other.dispose?.();
     } catch (e) { directDetail = e?.message ?? String(e); }
     push(directOk, "travel commutative", label, directDetail || undefined);
 
     // Viewing buffers live flushes; resume catches up; nothing is lost.
     const viewTo = 1;
-    travelHost.post({ type: "travel", to: viewTo });
+    yield travelHost.post({ type: "travel", to: viewTo });
     const mark = travelMsgs.length;
-    travelHost.act();
-    travelHost.tick(8);
+    yield travelHost.act();
+    yield travelHost.tick(8);
     const during = travelMsgs.slice(mark);
     const leaked = during.some(m => m.type === "flush");
     const nResume = travelMsgs.length;
-    travelHost.post({ type: "resume" });
+    yield travelHost.post({ type: "resume" });
     const resumed = travelMsgs.slice(nResume).find(m => m.type === "resume" || m.type === "travel-denied");
     const nHello = travelMsgs.length;
-    travelHost.post({ type: "hello", want: ["timeline"] });
+    yield travelHost.post({ type: "hello", want: ["timeline"] });
     const tl = travelMsgs.slice(nHello).find(m => m.type === "timeline");
     const kept = !leaked && tl && (tl.steps?.length ?? 0) >= stepsNow().length;
     push(kept, "flushes during viewing kept", label, leaked ? "a flush was shown while viewing" : tl ? undefined : "no timeline after resume");
@@ -379,43 +416,48 @@ function checkOne(makeHost, graph, label, seed, push) {
       if (!resumeOk) resumeDetail = "resume changes do not reach live";
     } else resumeDetail = resumed ? resumed.type : "no resume";
     push(resumeOk, "resume matches live", label, resumeDetail || undefined);
-    travelHost.dispose?.();
+    yield travelHost.dispose?.();
   }
+
+  // `step.inexact` (§4b): a list of graph keys when present.
+  const badInexact = [...msgs, ...(travelMsgs ?? [])].filter(m => m.type === "step" && m.inexact !== undefined)
+    .flatMap(m => Array.isArray(m.inexact) ? m.inexact.filter(k => !allKeys.has(k)) : ["not a list"]);
+  push(!badInexact.length, "step inexact keys exist", label, badInexact.slice(0, 3).join(", ") || undefined);
 
   // Eviction: a small ring drops early seqs.
   try {
-    const small = makeHost(graph, { seed, rate: 0, capacity: 3 });
+    const small = yield makeHost(graph, { seed, rate: 0, capacity: 3 });
     const box = [];
     small.subscribe(m => box.push(m));
     let guard = 0;
     while (box.filter(m => m.type === "flush").length < 6 && guard++ < 40) {
-      small.act();
-      small.tick(6);
+      yield small.act();
+      yield small.tick(6);
     }
     // settle flights so travel isn't pending
-    small.tick(12);
+    yield small.tick(12);
     const got = box.filter(m => m.type === "flush").length;
     const n = box.length;
-    small.post({ type: "travel", to: 1 });
+    yield small.post({ type: "travel", to: 1 });
     const denied = box.slice(n).find(m => m.type === "travel-denied" || m.type === "step");
     if (got >= 6) {
       const ok = denied?.type === "travel-denied" && denied.reason === "evicted";
       push(ok, "travel evicted outside capacity", label, ok ? undefined : `got ${denied?.type ?? "nothing"} ${denied?.reason ?? ""} after ${got} flushes`);
     } else push(true, "travel evicted outside capacity", label, `only ${got} flushes, skipped`);
-    small.dispose?.();
+    yield small.dispose?.();
   } catch (e) {
     push(false, "travel evicted outside capacity", label, e?.message ?? String(e));
   }
 
   // HMR plan.
   try {
-    const h = makeHost(graph, hostOpts);
+    const h = yield makeHost(graph, hostOpts);
     const box = [];
     h.subscribe(m => box.push(m));
-    h.post({ type: "hello", want: ["hmr"] });
-    h.tick(4);
+    yield h.post({ type: "hello", want: ["hmr"] });
+    yield h.tick(4);
     const module = graph.modules?.[0];
-    h.editModule(module);
+    yield h.editModule(module);
     const planMsg = box.find(m => m.type === "hmr" && m.phase === "plan");
     const doneMsg = box.find(m => m.type === "hmr" && m.phase === "done");
     const failed = box.find(m => m.type === "hmr" && m.phase === "failed");
@@ -433,10 +475,10 @@ function checkOne(makeHost, graph, label, seed, push) {
       const bad = (doneMsg?.changes ?? []).filter(c => c.key != null && !allow.has(c.key)).map(c => c.key);
       push(!!doneMsg && bad.length === 0, "hmr done changes subset", label, !doneMsg ? "no done" : bad.length ? bad.join(", ") : undefined);
     }
-    h.dispose?.();
+    yield h.dispose?.();
   } catch (e) {
     push(false, "hmr partition", label, e?.message ?? String(e));
   }
 
-  host.dispose?.();
+  yield host.dispose?.();
 }

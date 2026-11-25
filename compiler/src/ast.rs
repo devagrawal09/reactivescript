@@ -22,6 +22,7 @@ pub enum TplPart {
 #[derive(Debug, Clone)]
 pub enum Field {
     Kv { key: String, v: Expr },
+    Computed { key: Expr, v: Expr },
     Spread(Expr),
 }
 
@@ -83,6 +84,7 @@ pub enum ExprKind {
     Call { f: Box<Expr>, args: Vec<Expr> },
     Arr(Vec<Expr>),
     Rec(Vec<Field>),
+    As { e: Box<Expr>, ty: String },
     /// `stmts`: a statement-bodied arrow (imperative scope, 07 §5)
     Fn { params: Vec<String>, body: Box<Expr>, stmts: Option<Vec<Stmt>> },
     /// ST-3
@@ -98,8 +100,6 @@ pub enum ExprKind {
     Catch { e: Box<Expr>, name: Option<String>, classes: Option<Vec<String>>, alt: Box<Expr> },
     /// 07 CSS-5
     StyleMap { css: String, line: usize },
-    /// 07 §3: `e as T` — a type assertion, erased at run time; the projection keeps it
-    As { e: Box<Expr>, ty: String },
     /// 12 SF-1d
     ServerFn { params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt> },
 }
@@ -422,6 +422,7 @@ impl Expr {
             ExprKind::Call { .. } => "call",
             ExprKind::Arr(_) => "arr",
             ExprKind::Rec(_) => "rec",
+            ExprKind::As { .. } => "as",
             ExprKind::Fn { .. } => "fn",
             ExprKind::Draft { .. } => "draft",
             ExprKind::Use(_) => "use",
@@ -430,7 +431,6 @@ impl Expr {
             ExprKind::Throw(_) => "throw",
             ExprKind::Catch { .. } => "catch",
             ExprKind::StyleMap { .. } => "stylemap",
-            ExprKind::As { .. } => "as",
             ExprKind::ServerFn { .. } => "serverfn",
         }
     }
@@ -446,6 +446,7 @@ impl Expr {
             ExprKind::Pre { name, init } => obj(vec![("k", k), ("name", s(name)), ("init", ob(init))]),
             ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Throw(e) => obj(vec![("k", k), ("e", b(e))]),
             ExprKind::Omit { e, keys } => obj(vec![("k", k), ("e", b(e)), ("keys", Some(strs(keys)))]),
+            ExprKind::As { e, ty } => obj(vec![("k", k), ("e", b(e)), ("ty", s(ty))]),
             ExprKind::Await { e, init, stream } => obj(vec![("k", k), ("e", b(e)), ("init", ob(init)), ("stream", Some(Value::Bool(*stream)))]),
             ExprKind::If { c, t, f } => obj(vec![("k", k), ("c", b(c)), ("t", b(t)), ("f", b(f))]),
             ExprKind::Tpl(parts) => obj(vec![
@@ -465,6 +466,7 @@ impl Expr {
                             .iter()
                             .map(|f| match f {
                                 Field::Kv { key, v } => obj(vec![("key", s(key)), ("v", Some(v.to_json()))]),
+                                Field::Computed { key, v } => obj(vec![("computed", Some(key.to_json())), ("v", Some(v.to_json()))]),
                                 Field::Spread(e) => obj(vec![("spread", Some(e.to_json()))]),
                             })
                             .collect(),
@@ -476,7 +478,6 @@ impl Expr {
             ExprKind::Use(n) => obj(vec![("k", k), ("name", s(n))]),
             ExprKind::Catch { e, name, classes, alt } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt))]),
             ExprKind::StyleMap { css, line } => obj(vec![("k", k), ("css", s(css)), ("line", num(*line))]),
-            ExprKind::As { e, ty } => obj(vec![("k", k), ("e", b(e)), ("type", s(ty))]),
             ExprKind::ServerFn { params, ptypes, ret, body } => obj(vec![("k", k), ("params", Some(strs(params))), ("ptypes", Some(ostrs(ptypes))), ("ret", os(ret)), ("body", Some(stmts_json(body)))]),
         }
     }

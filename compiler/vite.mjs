@@ -119,6 +119,7 @@ export default function rx() {
       const dep = isDep(moduleId);
       const base = path.resolve(root ?? process.cwd());
       const dev = solid.dev === true && target === "dom" ? base : null;
+      if (dev && !dep) globalThis[Symbol.for("reactivescript.vite.entries")]?.get(base)?.(file, spa);
       const { out } = dep ? containing(file, target, moduleName, spa, base, dev) : build(file, target, moduleName, spa, dev);
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);

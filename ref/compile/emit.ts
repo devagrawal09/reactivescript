@@ -428,6 +428,7 @@ class Gen {
   private foreign(d: Extract<Decl, { k: "eq" }>, env: Env, b: Bind, pad: string): string | null {
     const e = d.e;
     const part = (r: string, p: Shape) => p === "ref" ? r : `() => ${r}`;
+    const keyed = (expr: string) => this.under(this.keys.get(d), expr);
     if (e.k === "call" && e.f.k === "id") {
       const f = env.lookup(e.f.name); if (f?.kind !== "jfn") return null;
       const args = e.args.map((a, i) => {
@@ -437,13 +438,13 @@ class Gen {
       });
       const r = b.inst!; const sh = f.shape!;
       const whole = typeof sh === "string" ? part(r, sh) : `__rt.memo(null, () => ${"items" in sh ? `[${sh.items.map((p, i) => p === "ref" ? `${r}[${i}]()` : `${r}[${i}]`).join(", ")}]` : `({ ${sh.fields.map(([k, p]) => `${J(k)}: ${p === "ref" ? `${r}[${J(k)}]()` : `${r}[${J(k)}]`}`).join(", ")} })`})`;
-      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
+      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${keyed(whole)};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
       const ob = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const sh = ob?.shape; if (!ob?.inst || !sh || typeof sh !== "object") return null;
       const key = e.k === "index" ? (e.i as { v: any }).v : e.p;
       const p = "items" in sh ? sh.items[key] : sh.fields.find(f => f[0] === key)?.[1]; if (!p) return null;
-      return `${pad}const ${b.js} = ${part(`${ob.inst}[${J(key)}]`, p)};`;
+      return `${pad}const ${b.js} = ${keyed(part(`${ob.inst}[${J(key)}]`, p))};`;
     }
     return null;
   }
@@ -493,7 +494,6 @@ class Gen {
         return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
       }
       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
-      case "as": return go(e.e);                                                    // 07 §3: a type assertion, erased
       case "member": return `${go(e.o)}?.${e.p}`;
       case "index": return `${go(e.o)}?.[${go(e.i)}]`;
       case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5
@@ -504,7 +504,8 @@ class Gen {
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
-      case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
+      case "as": return go(e.e);                                                    // 07 §3: erased
+      case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${"computed" in f ? `[${go(f.computed)}]` : J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
         const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
         if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()

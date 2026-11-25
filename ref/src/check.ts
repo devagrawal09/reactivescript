@@ -7,7 +7,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
-import { ModelBuilder, declKeys, moduleKey, type Model, type RegionKind, type CompKind } from "./model.ts";
+import { ModelBuilder, declKeys, moduleKey, outlineBlock, outlineHidden, type Model, type RegionKind, type CompKind, type OutlinePart } from "./model.ts";
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
@@ -128,7 +128,7 @@ export function freeNames(e: Expr, bound: Set<string>, out: Set<string>): void {
     case "index": go(e.o); go(e.i); return;
     case "call": go(e.f); e.args.forEach(go); return;
     case "arr": e.items.forEach(go); return;
-    case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
+    case "rec": for (const f of e.fields) { if ("computed" in f) go(f.computed); go("spread" in f ? f.spread : f.v); } return;
     case "fn": { const b = new Set([...bound, ...e.params]); freeNames(e.body, b, out); if (e.stmts) freeNamesStmts(e.stmts, b, out); return; }
     case "draft": { go(e.seed); freeNamesStmts(e.body, new Set([...bound, "d"]), out); return; }
     case "throw": go(e.e); return;
@@ -624,7 +624,7 @@ class Checker {
     const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
     if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
     for (const { name, alias } of d.names) {
-      const x = decls.find(y => y.name === name);
+      const x = decls.find(y => y.name === name && (y.kind !== "type" || y.exported));
       if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type") continue;
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
@@ -705,7 +705,7 @@ class Checker {
           case "id": { const s = env.lookup(x.name); if (s?.rows) for (const r of s.rows()) rows.add(r); return; }
         }
         for (const v of Object.values(x as object)) {
-          if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr); else if ("v" in y) walk((y as { v: Expr }).v); else if ("spread" in y) walk((y as { spread: Expr }).spread); } });
+          if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("computed" in y) walk((y as { computed: Expr }).computed); if ("k" in y) walk(y as Expr); else if ("v" in y) walk((y as { v: Expr }).v); else if ("spread" in y) walk((y as { spread: Expr }).spread); } });
           else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr);
         }
       };
@@ -866,6 +866,10 @@ class Checker {
     if (s) { this.sided(s, ctx); return s; }
     if (BUILTINS.has(name)) return undefined;
     if (ctx.scope === "imperative" && (name === "log" || /^\$\d+$/.test(name))) return undefined;   // the apply block's parameters; `log` is io and only in imperative scope
+    if (name === "Number" || name === "Math") {
+      this.err("UNBOUND", "SV-7a", `${name} is not a global in .rx: in js-globals.js write \`export const ${name} = globalThis.${name}\`, then here write \`import { ${name} } from "./js-globals.js"\``);
+      return undefined;
+    }
     this.err("UNBOUND", "SCOPE", `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
     return undefined;
   }
@@ -927,8 +931,9 @@ class Checker {
       case "member": if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
       case "index": go(e.o); go(e.i); return;
       case "arr": e.items.forEach(go); return;
-      case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
+      case "rec": for (const f of e.fields) { if ("computed" in f) go(f.computed); go("spread" in f ? f.spread : f.v); } return;
       case "call": {
+        let callee = e.f; while (callee.k === "as") callee = callee.e;
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
           const p = e.args[0];
@@ -945,16 +950,17 @@ class Checker {
           this.expr(p, env, { scope: "imperative", server: ctx.server });                       // the callback is imperative scope
           return;
         }
-        if (e.f.k === "id") {
-          const s = env.lookup(e.f.name);
-          if (ctx.scope === "reactive" && (s?.io || (!s && e.f.name === "log"))) {
-            if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${e.f.name}(…) is io; a fn is pure by definition`);
-            else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}`);
+        if (callee.k === "id") {
+          const name = callee.name;
+          const s = env.lookup(name);
+          if (ctx.scope === "reactive" && (s?.io || (!s && name === "log"))) {
+            if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${name}(…) is io; a fn is pure by definition`);
+            else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${name}(…) is io and is called in reactive scope (R-io-3)${s?.ioVia ? ` — its server body calls ${s.ioVia}` : ""}`);
           }
-          if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${e.f.name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
-          if (s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
-          if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
-          if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${e.f.name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
+          if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
+          if (s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${name}(…) declares state: bind it, \`x = ${name}(…)\` (RG-6)`);
+          if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${name} called as a function: apply it in a view`);
+          if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
           this.model.call(s);
         }
         go(e.f); e.args.forEach(go); return;
@@ -990,7 +996,7 @@ class Checker {
   private runChecks(stmts: Stmt[], action: boolean, bound: string[], inferred = false, opts: RunOpts = {}) {
     for (const f of runFindings(stmts, action, bound, inferred, opts)) {
       if (f.code === "STALE_CAPTURE") { this.err("STALE_CAPTURE", "AC-1g", `${f.name} := … after an \`await\` writes ${f.via}, which is not the server's: ${f.name} is the server's answer, and after the \`await\` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (\`${f.name} := rs => …\`, finding rows there by id). A row passed in, or read from a source before the \`await\` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (\`refresh\`)`); continue; }
-      if (f.code === "HELD_WRITE") this.err("HELD_WRITE", "AC-1c", `${f.name} := … comes before an \`await\` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, \`guess ${f.name} := …\` (a source with a question, ST-5c); for a reset that lands now, \`onFlush(() => { ${f.name} := … })\` (EF-8); to hold it on purpose, declare the action (\`action name() { … }\`); or write it after the \`await\``);
+      if (f.code === "HELD_WRITE") this.err("HELD_WRITE", "AC-1c", `${f.name} := … comes before an \`await\` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, \`guess ${f.name} := …\` (AC-3); for a reset that lands now, \`onFlush(() => { ${f.name} := … })\` (EF-8); to hold it on purpose, declare the action (\`action name() { … }\`); or write it after the \`await\``);
       else if (f.code === "STALE_WRITE_BACK") this.err("STALE_WRITE_BACK", "AC-1e", `${f.name} := … after an \`await\` is computed from ${f.name} as it was read before that \`await\`: whatever changed ${f.name} in between (another action, a reload) is overwritten — write functionally (\`${f.name} := v => …\`, W-6), which applies to ${f.name} as it stands at the write, or guess it (\`guess\`, AC-3) and let the answer replace the guess`);
       else this.err("STALE_OWN_READ", "AC-1d", `${f.name} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (\`let v = …; ${f.name} := v\`) and read that, or write functionally (\`${f.name} := v => …\`, W-6)`);
     }
@@ -1091,7 +1097,7 @@ class Checker {
         return;
       }
       for (const v of Object.values(x as object)) {
-        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr, res); else if ("v" in y) walk((y as { v: Expr }).v, res); else if ("spread" in y) walk((y as { spread: Expr }).spread, res); } });
+        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("computed" in y) walk((y as { computed: Expr }).computed, res); if ("k" in y) walk(y as Expr, res); else if ("v" in y) walk((y as { v: Expr }).v, res); else if ("spread" in y) walk((y as { spread: Expr }).spread, res); } });
         else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr, res);
       }
     };
@@ -1154,60 +1160,81 @@ class Checker {
   // ---- views ----
   private markup(ms: Markup[], env: Env, viewRoot = false) {
     let styles = 0;
+    const put = (part: OutlinePart) => this.model.outline(env.region.id, part);
+    const site = () => put({ site: this.model.computations.length, line: this.line });
     for (const m of ms) {
       if (m.line) this.line = m.line;
       switch (m.k) {
-        case "text": break;
+        case "text": put({ text: m.s }); break;
         case "style":                                                                         // 07 §6b CSS-1
           if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
-        case "read": this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
+        case "read": site(); this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
+          const block = outlineBlock(m.tag);
+          if (block || m.tag === "br") put({ br: true, line: m.line });
+          const attr = (a: typeof m.attrs[number]) => {
+            if (outlineHidden(m.tag)) return;
+            if (a.e.k === "lit") this.model.viewAttr(env.region.id, a.name, a.e.v, this.line);
+            else site();
+          };
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", `<${m.tag}> is not a component declared here`); }
-            for (const a of m.attrs) this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
+            for (const a of m.attrs) { attr(a); this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); } // R-2
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: m.attrs.filter(a => !isHandler(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: m.attrs.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
+              put({ region: kids.id, line: m.line });
               this.markup(m.children, new Env(env, kids));
             } else this.markup(m.children, env);
             break;
           }
-          for (const a of m.attrs) { this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          for (const a of m.attrs) { attr(a); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          const hidden = Number(outlineHidden(m.tag));
+          this.model.hideOutline += hidden;
           this.markup(m.children, env);
+          this.model.hideOutline -= hidden;
+          if (block) put({ br: true });
           break;
         }
         case "mif": {
+          site();
           this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
-          this.block(m.tDecls, m.t, new Env(env, this.region(env.region, "then")), { scope: "reactive" });
-          this.block(m.fDecls, m.f, new Env(env, this.region(env.region, "else")), { scope: "reactive" });
+          const t = this.region(env.region, "then"); put({ region: t.id, line: m.line });
+          this.block(m.tDecls, m.t, new Env(env, t), { scope: "reactive" });
+          const f = this.region(env.region, "else"); if (m.f.length || m.fDecls.length) put({ region: f.id, line: m.line });
+          this.block(m.fDecls, m.f, new Env(env, f), { scope: "reactive" });
           break;
         }
         case "mfor": {
+          site();
           this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
+          put({ region: r.id, line: m.line });
           inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line });   // RG-2b: the row binding is a constant
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }
         case "loading": {
-          if (m.on) { const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
+          if (m.on) { site(); const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
           const body = this.region(env.region, "loading"); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
           this.boundaries.set(m, body.id);
+          put({ region: body.id, line: m.line });
           if (m.on) this.loadOns.push({ region: body, e: m.on, env, line: this.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
         case "portal": {                                                                      // RG-8: a region owned here, rendered elsewhere
-          if (m.to) { const to = m.to; this.comp("reader", env, { at: "portal to" }, () => this.expr(to, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
+          if (m.to) { site(); const to = m.to; this.comp("reader", env, { at: "portal to" }, () => this.expr(to, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
           const body = this.region(env.region, "portal"); body.provides.add(HOLD);                       // PT-3: the server renders nothing for it — a client question inside is held by it
+          put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           this.later.push(() => this.contentCheck(m.body, env, ["body"]));                     // its place is the end of the document
           break;
@@ -1218,6 +1245,7 @@ class Checker {
           if (m.classes) for (const n of m.classes) this.errClass(n, env);
           const body = this.region(env.region, "errored"); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
           this.boundaries.set(m, body.id);
+          put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
@@ -1341,7 +1369,7 @@ class Checker {
       case "draft": { go(e.seed); for (const st of e.body) { if (st.k === "let" || st.k === "expr" || st.k === "write") go(st.e); } return out; }
       default: {
         for (const v of Object.values(e as object)) {
-          if (Array.isArray(v)) v.forEach(y => { if (typeof y === "string") return; if (y && typeof y === "object") { if ("k" in y) go(y as Expr); else if ("v" in y) go((y as { v: Expr }).v); else if ("spread" in y) go((y as { spread: Expr }).spread); } });
+          if (Array.isArray(v)) v.forEach(y => { if (typeof y === "string") return; if (y && typeof y === "object") { if ("computed" in y) go((y as { computed: Expr }).computed); if ("k" in y) go(y as Expr); else if ("v" in y) go((y as { v: Expr }).v); else if ("spread" in y) go((y as { spread: Expr }).spread); } });
           else if (v && typeof v === "object" && "k" in (v as object)) go(v as Expr);
         }
         return out;
@@ -1350,9 +1378,10 @@ class Checker {
   }
   /** R-f-8: what an awaited value's promise may reject with. A call into a JS import: its declared failure (Error unless narrowed). */
   private rejects(e: Expr, env: Env, seen: Set<Sym>): Set<string> {
-    const root = (x: Expr): Expr => x.k === "member" || x.k === "index" ? root(x.o) : x;
+    const root = (x: Expr): Expr => x.k === "member" || x.k === "index" ? root(x.o) : x.k === "as" ? root(x.e) : x;
     switch (e.k) {
       case "lit": case "tpl": case "arr": case "rec": case "bin": case "un": return new Set();   // values: `await` is the value (R-1)
+      case "as": return this.rejects(e.e, env, seen);
       case "if": return new Set([...this.rejects(e.t, env, seen), ...this.rejects(e.f, env, seen)]);
       case "call": {
         const r = root(e.f);

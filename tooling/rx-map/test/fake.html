@@ -31,11 +31,14 @@ try {
   const h = win.__RX_FAKE__;
 
   // what the host says the app shows, folded from its own stream
-  const want = new Map(), open = new Map();
+  const want = new Map(), open = new Map(), failedSeen = new Set();
+  let heldSeen = 0;
   let lastGraph = null;
   h.subscribe(m => {
     const fold = cs => { for (const c of cs ?? []) if (c?.key) (c.preview === undefined ? want.delete(c.key) : want.set(c.key, c.preview)); };
     if (m.type === "flush" || m.type === "step" || m.type === "resume") fold(m.changes);
+    if (m.type === "flush") for (const c of m.changes ?? []) if (c.error) failedSeen.add(c.key);
+    if (m.type === "held") heldSeen++;
     if (m.type === "hmr" && m.phase === "done") fold(m.changes);
     if (m.type === "hmr" && m.phase === "plan") lastGraph = m.graph;
     if (m.type === "flight") open.set(m.key, (open.get(m.key) ?? 0) + (m.state === "start" ? 1 : -1));
@@ -56,6 +59,7 @@ try {
   settle();
   await sleep(50);
   compare("after 14 actions");
+  check("fake: some answers fail, and the page marks them", !failedSeen.size || [...failedSeen].some(k => doc.querySelector(`#board .chip.failed[data-id="${win.__RX_VIEW__.graph().nodes.find(n => n.key === k && !n.site)?.id}"]`) || win.__RX_VIEW__.values()[k] !== undefined), [...failedSeen]);
   check("the timeline has the flushes", doc.querySelectorAll("#board .chip .lv").length > 0 && /#\d+/.test(doc.getElementById("seqLabel").textContent), doc.getElementById("seqLabel").textContent);
 
   const track = doc.getElementById("track");
@@ -91,7 +95,7 @@ try {
   const lib = win.__RX_FAKE_LIB__;
   const graphs = [graph];
   for (const f of ["notes", "settings", "todos"]) { const r = await fetch(`/test/fixtures/${f}.json`); if (r.ok) graphs.push(await r.json()); }
-  const results = runConformance((g, o) => lib.createFakeHost(g, o), graphs);
+  const results = [...runConformance((g, o) => lib.createFakeHost(g, o), graphs), ...runConformance((g, o) => lib.createFakeHost(g, { ...o, failRate: .2 }), graphs, { seed: 5 })];
   const failed = results.filter(r => !r.ok);
   check(`conformance in the browser: ${results.length} checks over ${graphs.length} graphs`, results.length > 10 && !failed.length, failed.slice(0, 5));
 } catch (e) {

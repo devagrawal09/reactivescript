@@ -55,7 +55,7 @@ function discover(files) {
   return modules.filter(f => !imported.has(f));
 }
 
-export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC } = {}) {
+export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC, spa = true, managed = false } = {}) {
   root = resolve(root);
   entries = [...new Set(entries.map(f => resolve(root, f)))];
   const binary = rxc && /[\\/]/.test(rxc) ? resolve(rxc) : rxc || "rxc";
@@ -92,6 +92,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
   const stampOf = (files, deps = []) => JSON.stringify([...new Set([...files, ...entries, ...deps])].sort()
     .map(f => [f, statSync(f, { throwIfNoEntry: false })?.mtimeMs]));
   function snapshot() {
+    if (managed) return cached ??= { entries, hasPrograms: entries.length > 0 };
     const files = scan(root);
     const stamp = stampOf(files, cached?.graph?.absModules);
     if (stamp !== cached?.stamp) {
@@ -115,20 +116,44 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       s.model = modelOf(requireEntries(s), root);
       s.graph = buildGraph(structuredClone(s.model), { root });
       // Imported modules outside the scanned tree must also invalidate the snapshot.
-      s.stamp = stampOf(s.files, s.graph.absModules);
+      if (!managed) s.stamp = stampOf(s.files, s.graph.absModules);
     }
     return s;
   }
   function check() {
     const s = snapshot();
     if (!s.diagnostics) {
-      const data = JSON.parse(compiler(root, ["check", "--json", ...requireEntries(s)], true));
+      const data = JSON.parse(compiler(root, ["check", "--json", ...(spa ? ["--spa"] : []), ...requireEntries(s)], true));
       const unique = new Map();
       for (const d of data.diagnostics) {
         const diag = { file: isAbsolute(d.file) ? where(root, d.file) : d.file,
           line: d.range?.start?.line ?? d.line ?? 1, column: (d.range?.start?.column ?? 0) + 1,
           severity: d.severity ?? "error", code: d.code, message: plain(d.message) };
+        if (diag.code === "ASYNC_OUTSIDE_LOADING_BOUNDARY" && /a reader of …/.test(diag.message)) {
+          try {
+            const line = readFileSync(resolve(root, diag.file), "utf8").split(/\r?\n/)[diag.line - 1];
+            const reader = line?.match(/\bpending\?\s+[\w$.]+/)?.[0] ?? line?.trim();
+            if (reader) diag.message = diag.message.replace("a reader of …", `\`${reader}\` at ${diag.file}:${diag.line}`);
+          } catch {}
+        }
         unique.set(JSON.stringify(diag), diag);
+      }
+      // Run the project's own Volar/TypeScript projection, when installed.
+      let tsc;
+      try { tsc = require.resolve("@reactivescript/language-server/bin/tsc.js"); } catch {}
+      if (tsc && statSync(join(root, "tsconfig.json"), { throwIfNoEntry: false })?.isFile()) {
+        let output;
+        try { output = run(root, process.execPath, [tsc, "--noEmit", "--pretty", "false"]); }
+        catch (e) { output = e.stdout || e.stderr; if (!output) throw e; }
+        for (const text of plain(output).split(/\r?\n/)) {
+          const match = text.match(/^(.*)\((\d+),(\d+)\): (error|warning) (TS\d+): (.*)$/)
+            ?? text.match(/^(.*):(\d+):(\d+) - (error|warning) ([A-Z][A-Z_0-9]+): (.*)$/);
+          if (!match) continue;
+          const [, file, line, column, severity, code, message] = match;
+          const rel = isAbsolute(file) ? where(root, file) : file;
+          const diag = { file: rel, line: +line, column: +column, severity, code, message };
+          if (![...unique.values()].some(d => d.file === rel && d.line === +line && d.code === code)) unique.set(JSON.stringify(diag), diag);
+        }
       }
       s.diagnostics = [...unique.values()];
     }

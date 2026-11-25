@@ -36,7 +36,10 @@ export function buildGraph(model, { root = process.cwd() } = {}) {
     const file = rel(files[mi]);
     for (const r of m.regions) {
       regions.push({ id: `${mi}:r${r.id}`, mod: mi, kind: r.kind, name: r.name ?? null,
-        parent: r.parent == null ? null : `${mi}:r${r.parent}` });
+        parent: r.parent == null ? null : `${mi}:r${r.parent}`,
+        ...(r.outline ? { outline: r.outline.map(p => "site" in p ? { ...p, site: `${mi}:c${p.site}` }
+          : "region" in p ? { ...p, region: `${mi}:r${p.region}` } : { ...p }) } : {}) });
+      for (const p of r.outline ?? []) if (p.line != null) keepLine(mi, p.line);
     }
     for (const s of m.symbols) {
       if (s.from) continue;                        // folded below
@@ -140,7 +143,51 @@ export function buildGraph(model, { root = process.cwd() } = {}) {
   const seen = new Set();
   const uniq = edges.filter(e => { const k = JSON.stringify([e.from, e.to, e.type, e.mode, e.op, e.probe, e.field]); return seen.has(k) ? false : (seen.add(k), true); });
   const graph = { modules: files.map(rel), absModules: files, nodes, edges: uniq, regions, lines };
+  controlHeads(graph, mi => src[mi] ?? []);
   addKeys(graph);
+  return graph;
+}
+
+/** How each control-flow construct reads in source: the pattern of its header line, and its label. */
+export const CONTROL = {
+  then: [/(?:^|[{\s])if\s+(.+?)\s*\{/, m => `if ${m[1]}`],
+  else: [/\belse\s+if\s+(.+?)\s*\{|\belse\b/, m => (m[1] ? `else if ${m[1]}` : "else")],
+  for: [/\{\s*for\s+(.+?)\s*\{/, m => `for ${m[1]}`],
+  loading: [/\bloading\b\s*(on\s*\([^)]*\))?/, m => (m[1] ? `loading ${m[1].replace(/\s+/g, "")}` : "loading")],
+  errored: [/\berrored\b(?:\s+fallback\s*\(([^)]*)\))?/, m => (m[1] ? `errored (${m[1].trim()})` : "errored")],
+};
+
+/**
+ * Gives each `if` / `else` / `for` / `loading` / `errored` region its own header: `head = { line, text }`, e.g.
+ * `errored (e: NotFound)`. The model has no line for a region, so it is read off the source: the nearest header line
+ * above the region's first line. Nested constructs are placed first, and a region's search starts above the headers of
+ * the constructs inside it, so an outer `errored (e)` is not labelled with an inner `errored (e: NotFound)`.
+ */
+export function controlHeads(graph, sourceOf) {
+  const kids = new Map(), own = new Map();
+  for (const r of graph.regions) if (r.parent) (kids.get(r.parent) ?? kids.set(r.parent, []).get(r.parent)).push(r);
+  for (const n of graph.nodes) if (n.region && n.line) (own.get(n.region) ?? own.set(n.region, []).get(n.region)).push(n.line);
+  const firstMemo = new Map(), headMemo = new Map();
+  const first = r => {
+    if (!firstMemo.has(r.id)) { firstMemo.set(r.id, 1e9); firstMemo.set(r.id, Math.min(...(own.get(r.id) ?? []), ...(kids.get(r.id) ?? []).map(first), 1e9)); }
+    return firstMemo.get(r.id);
+  };
+  const head = r => {
+    if (headMemo.has(r.id)) return headMemo.get(r.id);
+    headMemo.set(r.id, null);
+    let bound = first(r);
+    const below = rr => { for (const k of kids.get(rr.id) ?? []) { const h = CONTROL[k.kind] && head(k); if (h?.line) bound = Math.min(bound, h.line - 1); else below(k); } };
+    below(r);
+    const pat = CONTROL[r.kind], ls = sourceOf(r.mod);
+    let h = null;
+    if (pat && bound < 1e9) for (let i = bound; i >= Math.max(1, bound - 40); i--) {
+      const m = ls[i - 1] && pat[0].exec(ls[i - 1]);
+      if (m) { h = { line: i, text: pat[1](m) }; break; }
+    }
+    headMemo.set(r.id, h);
+    return h;
+  };
+  for (const r of graph.regions) if (CONTROL[r.kind]) { const h = head(r); if (h) r.head = h; }
   return graph;
 }
 
