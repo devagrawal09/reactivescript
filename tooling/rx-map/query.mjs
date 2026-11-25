@@ -10,6 +10,18 @@ export const location = n => n?.file ? `  ${n.file}:${n.line ?? "?"}` : "";
 const describe = n => `${n.key}  ${n.kind}${location(n)}`;
 const result = (data, lines, empty) => ({ data, text: lines.join("\n") || empty });
 const append = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+const quoteOutline = (region, nodes, incoming, site) => {
+  const parts = region?.outline;
+  if (!parts?.some(p => "text" in p)) return;
+  const i = site == null ? 0 : parts.findIndex(p => p.site === site);
+  if (i < 0) return;
+  const start = Math.max(0, i - 2), end = Math.min(parts.length, i + 4);
+  if (!parts.slice(start, end).some(p => "text" in p)) return;
+  const text = parts.slice(start, end).map(p => "text" in p ? (p.attr ? `${p.attr}: ${p.text}` : p.text)
+    : p.site ? `[${(incoming.get(p.site) ?? []).filter(e => e.type === "read").map(e => nodes.get(e.from)?.name).filter(Boolean).join(", ") || nodes.get(p.site)?.name || "…"}]`
+    : " ").join("").replace(/\s+/g, " ").trim();
+  return `${start ? "… " : ""}${text.slice(0, 140)}${end < parts.length || text.length > 140 ? " …" : ""}`;
+};
 
 export function unknownKey(key, choices, search = "find") {
   const distance = k => {
@@ -111,9 +123,10 @@ export function queryGraph(g, method, p) {
     }
     const r = boundaries.find(r => r.key === p.key);
     if (!r) throw unknownKey(p.key, boundaries.map(r => r.key), "boundary");
-    const data = { ...regionRef(r), notifiers: notifiers(r) };
+    const outline = quoteOutline(r, nodes, inc);
+    const data = { ...regionRef(r), notifiers: notifiers(r), ...(outline ? { outline } : {}) };
     return result(data, [describe(data), ...data.notifiers.map(n => `  ${describe(n)} via ${describe(n.via)}`),
-      ...(!data.notifiers.length ? ["  no known notifiers"] : [])]);
+      ...(!data.notifiers.length ? ["  no known notifiers"] : []), ...(outline ? [`  view: ${outline}`] : [])]);
   }
   const n = byKey.get(p.key);
   if (!n) throw unknownKey(p.key, [...byKey.keys()]);
@@ -128,6 +141,9 @@ export function queryGraph(g, method, p) {
       declaration: g.lines[n.file]?.[n.line] ?? "", component: null, boundaries: [],
       reads: linked("read", "in"), writes: linked("write", "out"), calls: linked("call", "out"),
       readBy: linked("read", "out"), writtenBy: linked("write", "in") };
+    const sites = n.site ? [n] : data.readBy.map(r => byKey.get(r.key)).filter(x => x?.site);
+    const outline = sites.map(s => quoteOutline(regions.get(s.region), nodes, inc, s.id)).find(Boolean);
+    if (outline) data.outline = outline;
     for (let r = regions.get(n.region); r; r = regions.get(r.parent)) {
       if (r.kind === "component" && !data.component) {
         const comp = g.nodes.find(n => n.mod === r.mod && n.kind === "comp" && n.name === r.name);
@@ -138,6 +154,7 @@ export function queryGraph(g, method, p) {
     const marks = Object.keys(data.marks).filter(k => data.marks[k]);
     return result(data, [
       `${describe(data)}  role=${data.role}  marks=${marks.join(",") || "none"}`, `  declaration: ${data.declaration.trim()}`,
+      ...(outline ? [`  view: ${outline}`] : []),
       ...(data.component ? [`  component ${describe(data.component)}`] : []),
       ...data.boundaries.map(b => `  boundary ${describe(b)}`),
       ...Object.entries({ "read-by": data.readBy, "written-by": data.writtenBy, reads: data.reads, writes: data.writes, calls: data.calls })
@@ -177,10 +194,11 @@ export function queryDiff(g) {
   const changes = g.diff.summary.map(i => ({ ...i, nodes: i.ids.map(id => ref(byId.get(id))) }));
   const boundaries = g.regions.filter(r => isBoundary(r) && ["added", "removed"].includes(r.status))
     .map(r => ({ key: r.key, file: g.modules[r.mod], line: r.head?.line, kind: r.kind, status: r.status }));
-  return result({ before: g.diff.before, after: g.diff.after, changes, boundaries },
+  const textChanges = g.regions.filter(r => r.reason === "text changed").map(r => ({ key: r.key, file: g.modules[r.mod], line: r.head?.line, kind: r.kind }));
+  return result({ before: g.diff.before, after: g.diff.after, changes, boundaries, textChanges },
     [`${g.diff.before} → ${g.diff.after}`, ...(changes.length ? changes.map(i =>
-      `${i.text.replaceAll("`", "")}  [${i.nodes.map(n => `${n.key}${location(n)}`).join("; ")}]`) : boundaries.length ? [] : ["no notable behavior changes"]),
-    ...boundaries.map(b => `${b.status} boundary ${describe(b)}`)]);
+      `${i.text.replaceAll("`", "")}  [${i.nodes.map(n => `${n.key}${location(n)}`).join("; ")}]`) : boundaries.length || textChanges.length ? [] : ["no notable behavior changes"]),
+    ...boundaries.map(b => `${b.status} boundary ${describe(b)}`), ...textChanges.map(r => `text changed ${describe(r)}`)]);
 }
 /** Text rendering of the live recorder's read-only queries. */
 export function liveText(method, data) {

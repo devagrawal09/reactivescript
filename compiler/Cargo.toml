@@ -23,6 +23,8 @@ node = ["dep:napi", "dep:napi-derive"]
 [dependencies]
 indexmap = "2"
 regex = "1"
+htmlize = { version = "1", features = ["unescape"] }
+dragonbox_ecma = "0.1"
 serde_json = { version = "1", features = ["preserve_order"] }
 # CP-1b: Solid's compiler, at the commit ref/ runs on (ref/SOLID_NEXT), and the Oxc release it is built against (CP-1c:
 # the program crosses the seam, so the versions must match)

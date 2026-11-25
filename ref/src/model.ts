@@ -1,3 +1,5 @@
+import { decodeHTMLStrict } from "entities";
+
 // The resolved model (spec/11 CP-6, issue #1): what the checker resolved, as facts a lowering or another analysis consumes
 // instead of recognising source spellings. Compile-time only. Not a stable format: it is the vocabulary of facts the Rust
 // crate's model is diffed against (ref/crate.ts), not an IR anyone else depends on yet.
@@ -23,10 +25,18 @@ export type Read = { sym: number; mode: ReadMode; field?: string; probe?: "lates
 export type Write = { sym: number; op: "write" | "optimistic" | "refresh" | "affects"; path?: true };
 export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | "else" | "for" | "loading" | "portal" | "errored" | "children";
 export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "reader" | "prop" | "handler" | "effect" | "apply" | "action" | "server" | "fn" | "provide" | "default";
-export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string };
+export type OutlinePart = ({ text: string; attr?: string } | { site: number } | { region: number } | { br: true }) & { line?: number };
+export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string; outline: OutlinePart[] };
 export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string };
 export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[] };
 export type Model = { file: string; regions: ModelRegion[]; symbols: ModelSymbol[]; computations: Computation[] };
+
+const OUTLINE_LIMIT = 400;
+const BLOCKS = new Set("address article aside blockquote dd details dialog div dl dt fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup hr li main menu nav ol p pre section summary table tbody td th thead tfoot tr ul".split(" "));
+const HUMAN_ATTRS = new Set(["placeholder", "title", "alt", "aria-label", "value"]);
+export const outlineBlock = (tag: string) => BLOCKS.has(tag);
+export const outlineHidden = (tag: string) => tag === "style" || tag === "script";
+const outlineText = (text: string) => decodeHTMLStrict(text).replace(/[ \t\n\r\f\u00a0]+/g, " ");
 
 const READ_KINDS = new Set(["source", "eq", "props", "context"]);
 const CALL_KINDS = new Set(["fn", "action", "server", "import"]);
@@ -78,7 +88,48 @@ export class ModelBuilder {
   snap = 0;                                                             // inside `peek`, a seed, an E-10 argument
   probe: "latest" | "pending" | undefined;
 
-  region(id: number, kind: RegionKind, parent: { id: number } | null, name?: string) { this.regions.push({ id, kind, ...(parent ? { parent: parent.id } : {}), ...(name !== undefined ? { name } : {}) }); }
+  private outlines = new Map<number, OutlinePart[]>();
+  private clipped = new Set<number>();
+  hideOutline = 0;
+  region(id: number, kind: RegionKind, parent: { id: number } | null, name?: string) {
+    const outline: OutlinePart[] = [];
+    this.outlines.set(id, outline);
+    this.regions.push({ id, kind, ...(parent ? { parent: parent.id } : {}), ...(name !== undefined ? { name } : {}), outline });
+  }
+  outline(id: number, part: OutlinePart) {
+    const out = this.outlines.get(id)!;
+    if (this.hideOutline || this.clipped.has(id)) return;
+    let prev = out.at(-1);
+    if ("br" in part) {
+      if (prev && "text" in prev && !prev.attr) {
+        prev.text = prev.text.replace(/ $/, "");
+        if (!prev.text) { out.pop(); prev = out.at(-1); }
+      }
+      if (!prev || "br" in prev) return;
+    } else if ("text" in part && !part.attr) {
+      let text = outlineText(part.text);
+      if (!prev || "br" in prev) text = text.replace(/^ /, "");
+      if (!text) return;
+      if (prev && "text" in prev && !prev.attr) {
+        prev.text += prev.text.endsWith(" ") ? text.replace(/^ /, "") : text;
+        return;
+      }
+      part = { text };
+    }
+    if (out.length >= OUTLINE_LIMIT && !("br" in part)) {
+      out.length = OUTLINE_LIMIT;
+      this.clipped.add(id);
+      out.push({ text: "…" });
+    } else out.push(part);
+  }
+  viewAttr(id: number, attr: string, literal: unknown, line: number): boolean {
+    if (typeof literal !== "string" && typeof literal !== "number") return false;
+    if (HUMAN_ATTRS.has(attr)) {
+      const text = outlineText(String(literal)).replace(/^ | $/g, "");
+      if (text) this.outline(id, { attr, text, line });
+    }
+    return true;
+  }
   sym(s: SymLike) { if (s.kind === "value" || this.ids.has(s)) return; this.ids.set(s, this.syms.length); this.syms.push(s); }
   within(kind: CompKind, region: { id: number }, line: number, info: { name?: string; at?: string }, f: () => void) {
     const c: Computation = { id: this.computations.length, kind, region: region.id, line, ...(info.name !== undefined ? { name: info.name } : {}), ...(info.at !== undefined ? { at: info.at } : {}), ...(this.cur ? { in: this.cur.id } : {}), reads: [], writes: [], calls: [] };
@@ -97,7 +148,19 @@ export class ModelBuilder {
   }
   call(s: SymLike | undefined) { const id = s && this.ids.get(s); if (!this.cur || id === undefined || !CALL_KINDS.has(s!.kind) || this.cur.calls.includes(id)) return; this.cur.calls.push(id); }
   build(file: string): Model {
-    return { file, regions: this.regions,
+    return { file, regions: this.regions.map(r => {
+      const outline = r.outline.slice();
+      while (outline.length) {
+        const last = outline.at(-1)!;
+        if ("br" in last) { outline.pop(); continue; }
+        if ("text" in last && !last.attr && last.text.endsWith(" ")) {
+          if (last.text === " ") { outline.pop(); continue; }
+          outline[outline.length - 1] = { ...last, text: last.text.slice(0, -1) };
+        }
+        break;
+      }
+      return { ...r, outline };
+    }),
       symbols: this.syms.map((s, id) => ({ id, name: s.name, kind: s.kind, region: s.region.id, line: s.line, ...(s.kind === "source" ? { question: !!s.question } : {}), ...(s.io ? { io: true as const } : {}), ...(s.imported ? { from: s.imported } : {}), ...(s.key ? { key: s.key } : {}) })),
       computations: this.computations };
   }

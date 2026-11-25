@@ -893,7 +893,9 @@ export function mergeGraphs(list) {
     for (const r of g.regions) {
       if (mod[r.mod].shared) continue;
       if (r.key) byKey.set(r.key, map.get(r.id));
-      out.regions.push({ ...r, id: map.get(r.id), mod: mod[r.mod].i, parent: r.parent == null ? null : map.get(r.parent) ?? re(r.parent) });
+      out.regions.push({ ...r, id: map.get(r.id), mod: mod[r.mod].i, parent: r.parent == null ? null : map.get(r.parent) ?? re(r.parent),
+        ...(r.outline ? { outline: r.outline.map(p => "site" in p ? { ...p, site: map.get(p.site) }
+          : "region" in p ? { ...p, region: map.get(p.region) } : p) } : {}) });
     }
     for (const n of g.nodes) {
       if (mod[n.mod].shared) continue;
