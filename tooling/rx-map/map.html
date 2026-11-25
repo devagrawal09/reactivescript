@@ -2187,6 +2187,7 @@ function select(id, scroll) {
   if (LIVE && k) host.post({ type: "select", key: k });
 }
 board.addEventListener("mouseover", ev => {
+  if (drag?.moved || pinch) return;   // passing over tokens while panning lights nothing (a restyle per token would cost frames)
   const c = ev.target.closest("[data-id]");
   if (!c) return;
   if (c.dataset.id !== hoverId) { hoverId = c.dataset.id; if (c.classList.contains("chip")) SFX.hover(); if (!drag?.moved) showTip(hoverId, ev.clientX, ev.clientY); }
