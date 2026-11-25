@@ -54,7 +54,7 @@ type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unkno
   hmrValue?: () => { value?: unknown; held?: boolean };
   source?: boolean;
 };
-type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
+type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown; arm?: string };   // arm: the selected arm of an errored boundary with arms (R-f-4)
 type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number; origin?: string; call?: number } | { type: "run" | "call"; key: string; id: number; ownerPath?: string[]; instance?: string; run?: number; origin?: string; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown; result?: unknown } | { type: "caught"; key: string; id: number; site: number; class: string };
 const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
@@ -148,14 +148,14 @@ function traceBoundary(region: string, state: "fallback" | "error") {
   const change = () => trace({ type: "boundary", region });
   remember(dev.__RX_BOUNDARIES__ ??= new Map(), region, current, change);
   change();
-  return (error?: Acc) => {
+  return (error?: Acc, arm?: string) => {
     // Its own ownerless root, disposed with the fallback: an effect owned by the fallback would take a hydration id
     // the (non-dev) server never gave out, and the dev client's fallback would miss its keys (ssr/run.ts RX_DEV=1).
     const dispose = runWithOwner(null, () => createRoot(d => {
-      createRenderEffect(() => error?.(), e => { current.state = state; current.error = e; change(); });
+      createRenderEffect(() => error?.(), e => { current.state = state; current.error = e; if (arm !== undefined) current.arm = arm; change(); });
       return d;
     }));
-    onCleanup(() => { dispose(); current.state = "ok"; delete current.error; change(); });
+    onCleanup(() => { dispose(); current.state = "ok"; delete current.error; delete current.arm; change(); });
   };
 }
 export type Acc = () => unknown;
@@ -188,6 +188,10 @@ const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes 
   if (id && err && typeof err === "object" && (err as { $class?: string }).$class === id) { Object.setPrototypeOf(err, (k as { prototype: object }).prototype); return true; }
   return false;
 });
+/** R-f-4: ordered arms — the index of the first arm whose class takes `err` (`undefined`: the default arm, `_`); -1: none. */
+const arm = (err: unknown, classes: unknown[]): number => classes.findIndex(c => isA(err, c === undefined ? undefined : [c]));
+/** R-f-4: ordered arms as a catch's test and handler (`catchMemo`, `catchRead`, `tryCatch`, `settle`): the selected arm handles it. */
+const arms = (classes: unknown[], alts: ((err: unknown) => unknown)[]) => [(err: unknown) => arm(err, classes) >= 0, (err: unknown) => alts[arm(err, classes)](err)] as const;
 /** `e catch (x: C) => alt`, reactive: an error boundary around the read whose fallback is the value (Solid: an errored read
  *  reaches the nearest boundary even inside a JS `try`). The fallback is decided when read, so a change of class re-decides it. */
 function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
@@ -446,6 +450,12 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         if (currentRun !== undefined) trace({ type: "caught", key, id: currentRun, site, class: names[i] });
         return true;
       },
+      /** R-f-4 in a named action: the selected arm, traced as `caught` (its class, `_` for the default). */
+      actionArm(key: string, site: number, error: unknown, names: string[], classes: unknown[]) {
+        const i = arm(error, classes);
+        if (i >= 0 && currentRun !== undefined) trace({ type: "caught", key, id: currentRun, site, class: names[i] });
+        return i;
+      },
     } : {}),
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
     action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, key?: string) {
@@ -572,7 +582,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     // ---- failures (R-f) ----
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
-    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead, arm, arms,
     key: RX_INSTRUMENT ? <T>(k: string, f: () => T) => key(k, f, sources, reads) : key,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
@@ -603,6 +613,23 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         fallback: (err: Acc) => {
           const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
           return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => { show?.(err); return props.fallback(err); })) : new Forward(err()));
+        },
+        get children() { return props.children; },
+      });
+      return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
+    },
+    /** `errored fallback(e) { A => { … } _ => { … } }` (R-f-4): the first arm whose class takes the failure owns the fallback.
+     *  Another arm replaces the region (and its lifetime); a new failure for the same arm keeps it, and `e` follows. A failure
+     *  no arm takes passes to the boundary above, as a typed boundary passed other classes; so does a failure in the arm. */
+    ArmsErrored(props: { region?: string; names?: string[]; classes: unknown[]; arms: ((err: Acc) => unknown)[]; children: unknown }) {
+      const classes = props.classes, alts = props.arms, names = props.names;
+      const region = RX_INSTRUMENT && props.region;
+      const show = region ? traceBoundary(region, "error") : undefined;
+      const out = createComponent(Errored as any, {
+        fallback: (err: Acc) => {
+          const sel = createMemo(() => arm(err(), classes));
+          const shown = createMemo(() => { const i = sel(); return i < 0 ? null : untrack(() => { show?.(err, names?.[i]); return alts[i](err); }); });
+          return new Fallback(() => sel() < 0 ? new Forward(err()) : shown());
         },
         get children() { return props.children; },
       });

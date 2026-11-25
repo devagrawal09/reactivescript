@@ -10,6 +10,7 @@ import { RuleError, CheckError } from "./errors.ts";
 import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
+import type { ErrorArm } from "./ast.ts";
 import { singleModule, type ModuleSet } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
 import { pureGlobal, pureGlobalValue } from "./pure-globals.ts";
@@ -38,6 +39,7 @@ function guessedAt(n: { guessPaths: Path[] }, diff: Set<Path>): boolean {
 /** Leaf paths at which `a` and `b` differ (E-6 per path). */
 function diffPaths(a: unknown, b: unknown, path: Path, out: Set<Path>) {
   if (Object.is(a, b)) return;
+  if (a instanceof Error || b instanceof Error) { out.add(path); return; }   // a failure is itself: another one is a change (its message is not a key)
   if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
     for (const k of keys) diffPaths(a[k], b[k], join(path, k), out);
@@ -92,7 +94,7 @@ type CtxBinding = { context: Extract<Decl, { k: "context" }>; home: Region; dflt
 type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: Region } | { comp: CompDecl; home: Region } | { action: ActionDecl; home: Region };   // home: the declaring region — bodies resolve names there (lexical, RG-7a; across modules, MO-6)
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
-type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
+type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; arms?: ErrorArm<Stmt[]>[]; armClasses?: (unknown[] | undefined)[]; fin?: Stmt[] };
 type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; caught?: Extract<Expr, { k: "catch" }> | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
@@ -118,7 +120,7 @@ type Write = { node: Node; path: (string | number)[]; value: unknown };
 type ViewInst = { region: Region; items: VItem[] };
 type Row = { elem: unknown; region: Region; inst: ViewInst };
 type ReaderItem = { k: "read"; node: Node; shown: string | null };
-type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
+type BoundaryItem = { classes?: unknown[]; armClasses?: (unknown[] | undefined)[]; arm?: number; armRegion?: Region; errRegion?: Region; errNode?: Node; shownErr?: unknown; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
 type VItem =
   | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst; portal?: boolean }   // portal: RG-8 — settled and committed here, shown at the end of the document
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
@@ -128,7 +130,9 @@ type VItem =
 
 function nearest(b: BoundaryItem | null, kind: "loading" | "errored"): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === kind) return x; return null; }
 /** R-f-4: the nearest `errored` whose classes take `err`; a boundary of other classes lets it pass. */
-function catching(b: BoundaryItem | null, err: unknown): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && isA(err, x.classes)) return x; return null; }
+function catching(b: BoundaryItem | null, err: unknown): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && (x.armClasses ? armOf(err, x.armClasses) >= 0 : isA(err, x.classes))) return x; return null; }
+/** R-f-4: ordered arms — the first arm whose class takes `err` (`undefined`: the default arm, `_`); -1: none does. */
+function armOf(err: unknown, arms: (unknown[] | undefined)[]): number { return arms.findIndex(cs => isA(err, cs)); }
 /** H-12: a `loading` above an error fallback that is armed (re-armed by its `on`): the pending content under the fallback is its. */
 function armedAbove(eb: BoundaryItem): BoundaryItem | null { for (let x = eb.parent; x; x = x.parent) if (x.k === "loading") return x.armed ? x : null; return null; }
 /** An `errored` above that is showing its fallback: everything under it is behind it (H-4). */
@@ -537,6 +541,15 @@ export class Runtime {
         const was = i.showingFallback;
         this.settle(i.content, holding, i);
         i.showingFallback = i.caught.length > 0 || (i.showingFallback && i.stillWaiting);   // H-12: fallback until a new *answer* (D-41)
+        if (i.errNode && i.caught.length) { const v = i.caught[0].value; const err = v instanceof ErrVal ? v.err : undefined; if (err !== i.shownErr) { i.shownErr = err; this.markDirty(i.errNode); } }   // `e` follows a new failure (its node reads no input of its own)
+        if (i.armClasses && i.caught.length) {                                                // R-f-4: the arm the failure selects owns the fallback; another arm replaces the region, the same arm keeps it (its `e` follows)
+          const v = i.caught[0].value; const a = v instanceof ErrVal ? armOf(v.err, i.armClasses) : -1;
+          if (a >= 0 && a !== i.arm) {
+            i.armRegion?.dispose();
+            const ar = new Region(i.errRegion!, this, i.errRegion!.boundary);
+            i.arm = a; i.armRegion = ar; i.fallback = this.instantiate((i.m as Extract<Markup, { k: "errored" }>).arms![a].body, ar);
+          }
+        }
         if (i.showingFallback !== was) {                                                      // D-41: the change belongs to the frame of the answer that caused it
           const owners = (i.caught.length ? i.caught : this.contentReaders(i.content)).flatMap(r => [...r.taint]).filter(t => this.openChanges.has(this.find(t)) || t === this.instant);
           i.armedBy = owners.length ? owners[0] : this.instant;
@@ -879,9 +892,10 @@ export class Runtime {
       case "catch": {                                                  // R-f-4: a matching failure becomes a value; pending and other failures pass
         let v: unknown; try { v = this.ev(e.e, region, env); } catch (err) { if (err instanceof RuleError) throw err; v = new ErrVal(err); }
         if (!(v instanceof ErrVal)) return v;
-        if (!isA(v.err, this.classValues(e.classes, region))) { if (this.demandMode) return v; throw v.err; }
+        const arm = e.arms ? armOf(v.err, this.armClasses(e.arms, region)) : -1;
+        if (e.arms ? arm < 0 : !isA(v.err, this.classValues(e.classes, region))) { if (this.demandMode) return v; throw v.err; }
         const en = new Map(env); if (e.name) en.set(e.name, v.err);
-        return this.ev(e.alt, region, en);
+        return this.ev(e.arms ? e.arms[arm].body : e.alt, region, en);
       }
       case "un": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
       case "bin": {                                                    // R-5: inputs are static — an absent operand does not erase the others
@@ -960,6 +974,8 @@ export class Runtime {
     if (!names) return undefined;
     return names.map(n => { if (n === "Error") return Error; if (n === "Panic") return PANIC; const b = region.lookup(n); if (!b || !("constant" in b)) throw new RuleError("R-f-1", `${n} is not an error class`); return b.constant; });
   }
+  /** R-f-4: each arm's classes, in order; the default arm (`_`) takes every failure. */
+  armClasses(arms: ErrorArm<unknown>[], region: Region): (unknown[] | undefined)[] { return arms.map(a => a.cls === "_" ? undefined : this.classValues([a.cls], region)); }
   flight(key: string) { let f = this.flights.get(key); if (!f) this.flights.set(key, (f = new Flight(key))); return f; }
   /** 12 SF-7b: a server function as the client sees it — every call a flight. The body runs in place, behind a wire that copies
    *  the arguments and the result (SF-6a) and lets only declared failures through (SF-6b). A `server fn` is a loader: one
@@ -1056,7 +1072,8 @@ export class Runtime {
       const raise = (err: unknown): boolean => {
         while (run.frames.length) {
           const f = run.frames.pop()!;
-          if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin }); return true; }   // R-f-6: a typed catch takes its classes; others pass
+          if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin }); return true; }
+          if (f.kind === "try" && f.arms) { const a = armOf(err, f.armClasses!); if (a >= 0) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.arms[a].body, i: 0, kind: "catch", fin: f.fin }); return true; } }   // R-f-4: the first arm that takes it; a failure in the arm unwinds past the others   // R-f-6: a typed catch takes its classes; others pass
           if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally" }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
         }
         this.endRun(run, true, err); return false;
@@ -1064,9 +1081,13 @@ export class Runtime {
       try {
         /** AC-1 / R-f-4: a statement-level `await e catch (x: C) => alt` — a matching rejection is the statement's value. */
         const land = (bind: string | null, c: Extract<Expr, { k: "catch" }> | null | undefined, ok: boolean, v: unknown): boolean => {
-          if (!ok && !(c && isA(v, this.classValues(c.classes, region)))) return raise(v);
+          const arm = !ok && c?.arms ? armOf(v, this.armClasses(c.arms, region)) : -1;
+          if (!ok && !(c && (c.arms ? arm >= 0 : isA(v, this.classValues(c.classes, region))))) return raise(v);
           let val = v;
-          if (!ok) { const en = new Map(env); if (c!.name) en.set(c!.name, v); val = this.ev(c!.alt, region, en); }
+          if (!ok) {                                                          // a failure in the handler (an arm's `throw e`) unwinds to the `try` around the statement (AC-7), as any throw
+            const en = new Map(env); if (c!.name) en.set(c!.name, v);
+            try { val = this.ev(c!.arms ? c!.arms[arm].body : c!.alt, region, en); } catch (err) { if (err instanceof RuleError) throw err; return raise(err); }
+          }
           if (bind) env.set(bind, val); else run.result = val;
           return true;
         };
@@ -1098,7 +1119,7 @@ export class Runtime {
             else if (s.k === "expr") run.result = this.ev(s.e, region, env);
             else if (s.k === "return") { run.result = s.e ? this.ev(s.e, region, env) : undefined; run.returned = true; run.frames.length = 0; break; }
             else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block" });
-            else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, fin: s.fin });
+            else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, ...(s.arms ? { arms: s.arms, armClasses: this.armClasses(s.arms, region) } : {}), fin: s.fin });
             else if (s.k === "throw") { if (!raise(this.ev(s.e, region, env))) return undefined; }
             else this.resumeStmtOnly(s, region, env);
           } catch (e) {
@@ -1233,13 +1254,14 @@ export class Runtime {
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
       case "loading": case "errored": {
-        const item: BoundaryItem = { classes: m.k === "errored" ? this.classValues(m.classes, region) : undefined, k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };
+        const item: BoundaryItem = { classes: m.k === "errored" ? this.classValues(m.classes, region) : undefined, ...(m.k === "errored" && m.arms ? { armClasses: this.armClasses(m.arms, region), arm: -1 } : {}), k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };
         if (m.k === "loading" && m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));
         const cr = new Region(region, this, item); this.declare(m.decls, cr);
         item.content = this.instantiate(m.body, cr);
         const fr = new Region(region, this, region.boundary);
-        if (m.k === "errored" && m.errName) fr.scope.set(m.errName, this.mkNode("eq", m.errName, fr, () => { const c = item.caught[0]; const v = c?.value; return v instanceof ErrVal ? v.err : undefined; }));   // `fallback(e)`: the caught error, a value
+        if (m.k === "errored" && m.errName) fr.scope.set(m.errName, item.errNode = this.mkNode("eq", m.errName, fr, () => { const c = item.caught[0]; const v = c?.value; return v instanceof ErrVal ? v.err : undefined; }));   // `fallback(e)`: the caught error, a value
         item.fallback = this.instantiate(m.fallback, fr);
+        if (m.k === "errored" && m.arms) item.errRegion = fr;   // R-f-4: the selected arm's region is made under it when the boundary catches (settle)
         return item;
       }
     }

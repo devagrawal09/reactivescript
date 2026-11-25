@@ -61,9 +61,12 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
                 }
                 return;
             }
-            ExprKind::Catch { e, alt, .. } => {
+            ExprKind::Catch { e, alt, arms, .. } => {
                 walk(Node::E(e), tail, g, out);
                 walk(Node::E(alt), false, g, out);
+                for a in arms.iter().flatten() {
+                    walk(Node::E(&a.body), false, g, out);
+                }
                 return;
             }
             // a closure's body runs later; a draft's statements are its own
@@ -120,10 +123,13 @@ fn walk_catch<'a>(n: Node<'a>, root: bool, g: &[Guard<'a>], out: &mut Vec<Hoiste
     let g0 = |e| Guard { e, neg: false, nullish: false };
     if let Node::E(x) = n {
         match &x.k {
-            ExprKind::Catch { e, alt, .. } => {
+            ExprKind::Catch { e, alt, arms, .. } => {
                 if root {
                     walk_catch(Node::E(e), false, g, out);
                     walk_catch(Node::E(alt), false, g, out);
+                    for a in arms.iter().flatten() {
+                        walk_catch(Node::E(&a.body), false, g, out);
+                    }
                 } else if !has_await(x) {
                     out.push(Hoisted { node: x, guards: g.to_vec() });
                 }
