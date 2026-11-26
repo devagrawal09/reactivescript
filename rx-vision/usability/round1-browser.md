@@ -1,6 +1,6 @@
 # Round 1, browser (visual Map): "Shelf"
 
-App: `~/work/solidjs/rx-r1-browser` (3 local commits). Screenshots: `/tmp/r1-browser/NN-*.png`.
+App: `<workspace>/rx-r1-browser` (3 local commits). Screenshots were kept locally, not published.
 
 ## Outcome
 - Everything works and was checked in the running app: load + loading state, optimistic add with rollback and an error

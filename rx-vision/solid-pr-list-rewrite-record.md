@@ -2,7 +2,7 @@
 
 > Draft for a comment on #5089 (`openView`). **Not posted.** It is a design question with a working patch attached, not a PR.
 >
-> Patch: branch `fix/view-list-reads-through-pin` (local worktree `/home/lucifer/work/solidjs/solid-list-record`), three commits on `feat/signals-view` @ `24c8f59d8`:
+> Patch: branch `fix/view-list-reads-through-pin` (local worktree `<workspace>/solid-list-record`), three commits on `feat/signals-view` @ `24c8f59d8`:
 > 1. `fe9840c2a` a view reads a list's unnoded keys through its pinned container
 > 2. `365ab5cb1` a view rewinds a list an optimistic store guessed over across an await
 > 3. `9986b4dab` keep a view's store branches out of the prod tier

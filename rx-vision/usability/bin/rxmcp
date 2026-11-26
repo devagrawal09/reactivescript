@@ -14,7 +14,7 @@ const params = Object.fromEntries(args.map(arg => {
 }));
 const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: tool === "--list" ? "tools/list" : "tools/call",
   ...(tool === "--list" ? {} : { params: { name: tool, arguments: params } }) });
-const base = "/home/lucifer/work/solidjs/rx-integ";
+const base = process.env.RX_INTEG ?? require("node:path").resolve(__dirname, "../../..");
 const out = process.env.RX_DEV_URL
   ? spawnSync("curl", ["-sS", "--max-time", "35", "-H", "Content-Type: application/json",
     "-H", "Accept: application/json, text/event-stream", "--data-binary", request, new URL("/__rx/mcp", process.env.RX_DEV_URL).href], { encoding: "utf8", maxBuffer: 32 << 20 })

@@ -1,6 +1,6 @@
 # ReactiveScript: the big picture
 
-Pieced together 2026-11-24 from: upstream `solidjs/reactivescript` main (`e650b85`, 408 commits since 10-21), every PR and issue there, the fork's orphan design branches (`solid-model`, `rc-frontend`, `rc-ladder`, `plan-v2-composition`, rust-solid perf rounds, `eval-demo`/`eval-todo`), the store/runtime prototypes (`proto/store-*`, `rt-proto-tiers`), the adjacent Solid worktrees, and the local opencode sessions. Detailed notes per slice are in `notes/01..06`.
+Pieced together 2026-11-24 from: upstream `solidjs/reactivescript` main (`e650b85`, 408 commits since 10-21), every PR and issue there, the fork's orphan design branches (`solid-model`, `rc-frontend`, `rc-ladder`, `plan-v2-composition`, rust-solid perf rounds, `eval-demo`/`eval-todo`), the store/runtime prototypes (`proto/store-*`, `rt-proto-tiers`), and the adjacent Solid worktrees. Detailed notes per slice are in `notes/01..05`.
 
 ---
 
@@ -126,7 +126,6 @@ The rule that holds it together, stated across handoffs: *subtraction, not addit
 - **Weak spots:**
   - orphan fork branches drift (all on rc.21 / RX `fdbcad92`);
   - `/tmp` wipes cost a round;
-  - the local agent profile knows almost nothing about RX.
 
 ---
 
@@ -197,7 +196,7 @@ The rule that holds it together, stated across handoffs: *subtraction, not addit
 
 1. Where `solid-model` (plans, frontends, rust-solid) graduates: RX repo, Solid repo, or its own.
 2. Is rust-solid an RX *target*, or conformance and perf research?
-3. The eval RFC: scalar-only value eval, `preserve` on swap, and whether to send it to Ryan privately first.
+3. The eval RFC: scalar-only value eval, `preserve` on swap.
 4. Plan v2.3 next steps: imports → prop defaults → rest props, then rebase `rc-ladder`.
 5. Restart the runtime ladder (needs a realistic corpus first), or ship A + switches to Ryan first.
 6. The rust-solid perf round 4 (recompute fast path), or stop at parity.

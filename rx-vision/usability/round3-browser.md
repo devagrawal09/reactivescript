@@ -1,6 +1,6 @@
 # Round 3 "Crew": browser tester (dev toolbar → Structure → Map, pop-out)
 
-**Outcome.** All 10 spec items work in the running app. `pnpm build`, `pnpm typecheck` and `pnpm test` (7/7) pass. There are 14 `.rx` modules in `/home/lucifer/work/solidjs/rx-r3-browser`, 7 local commits. Verified in headless Chromium:
+**Outcome.** All 10 spec items work in the running app. `pnpm build`, `pnpm typecheck` and `pnpm test` (7/7) pass. There are 14 `.rx` modules in `<workspace>/rx-r3-browser`, 7 local commits. Verified in headless Chromium:
 - boards plus hash routes;
 - optimistic move/reorder/create/edit/assign/label, with rollback and inline errors under `?chaos`;
 - drawer with separately loaded activity, optimistic comments, debounced @mention;

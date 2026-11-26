@@ -1,6 +1,6 @@
 # View outline contract: static view text beside the sites
 
-The user wants the map to show the static content of views next to their reactive sites: text and numbers only, no
+The map shows the static content of views next to their reactive sites: text and numbers only, no
 elements, no rendering knowledge. E.g. Counter reads `Clicks: [count]` and `Milestone reached: [count] clicks!`.
 
 ## 1. Model (compiler: ref/src/model.ts + compiler/src/model.rs, byte-equal JSON; additive)

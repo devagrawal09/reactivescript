@@ -5,7 +5,7 @@ Slice: `eval/` (README, 12 PREREGs, `results/`), `examples/ai`, `examples/ai2`, 
 **Naming collision first.** "eval" means two different things in this project:
 
 1. **The AI eval**, `eval/` on main. A benchmark: fresh agents build the same app in .rx and in other stacks, and hidden tests, overlap tests and a timing fuzzer grade the result. Most of this doc is about this one.
-2. **Runtime `eval`**, on Dev's fork (`eval-demo`, `eval-todo`, `lsp-eval-snippets`, and the `eval-todo-solid2` session). A language feature: `eval(code, { bindings })` / `createEval` runs a string of .rx inside a running app, checked against a typed interface. Covered at the end under "the other eval". The session transcript is about this one, not the benchmark.
+2. **Runtime `eval`**, on Dev's fork (`eval-demo`, `eval-todo`, `lsp-eval-snippets`). A language feature: `eval(code, { bindings })` / `createEval` runs a string of .rx inside a running app, checked against a typed interface. Covered at the end under "the other eval". The session transcript is about this one, not the benchmark.
 
 ---
 
@@ -183,7 +183,7 @@ The guide is now visibly shaped by the eval loop. That's both its strength and w
 - A `pin-main` migration of the fork onto upstream main + Solid main (`optimistic` → `guess`) is in flight across three worktrees.
 - Open decisions on the RFC:
   - scalar-only value eval;
-  - where to post it (the handoff recommends sending it to Ryan privately first);
+  - where to post it;
   - state on swap.
 
 ---

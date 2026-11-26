@@ -22,7 +22,7 @@ Done = `pnpm build` passes, `rx-tsc --noEmit` (pnpm typecheck) passes, and every
 
 ## Rules
 
-- Learn RX from `~/work/solidjs/reactivescript/guide/*.md` and `examples/`. Don't edit the compiler, runtime or tooling.
+- Learn RX from `<workspace>/reactivescript/guide/*.md` and `examples/`. Don't edit the compiler, runtime or tooling.
 - Use your assigned tool for understanding and debugging whenever it could help, and note every time it helped, was
   useless, confused you, or was missing something you wanted.
 - Report (markdown, ≤ 60 lines) to the given path:

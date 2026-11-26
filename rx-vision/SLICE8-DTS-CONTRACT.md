@@ -222,7 +222,7 @@ require T to type-check.
 - Scenario `S-module-8` (a `.ts` with no `.d.rx`; brands; an override; a type-only import) on every runner.
   ref/crate parity: conform, `--lower`, `--project`.
 - rx-tsc / LSP tests; MCP tests; a Vite test where `.rx` imports from a `.ts` with no `.d.rx`.
-- `examples/` migrated. `/home/lucifer/work/solidjs/rx-vision/repro/r4-dts` is a copy of rx-r4-mcp with
+- `examples/` migrated. A local repro, `r4-dts`, is a copy of rx-r4-mcp with
   every shadow `.d.rx` deleted. It must build, typecheck and test.
 - Production output is byte-identical for every existing scenario and example whose inputs this does not
   change. That covers every program with no T, and every program whose T imports are all declared in W.

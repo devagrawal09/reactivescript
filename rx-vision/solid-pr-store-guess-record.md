@@ -1,11 +1,11 @@
 # PR draft (not opened): fix(signals): name the store properties a guess changed in the flush record
 
-- Branch: `fix/attribution-store-guess-record` (worktree `/home/lucifer/work/solidjs/solid-guess-record`), off `main` @ `5420b4a7c`
+- Branch: `fix/attribution-store-guess-record` (worktree `<workspace>/solid-guess-record`), off `main` @ `5420b4a7c`
 - Commits (squash on merge):
   1. `9a6e2ecb5 fix(signals): name the store properties a guess changed in the flush record`
   2. `c74dabbd2 test(signals): name a chained optimistic store's guessed properties; comparator idiom` (review follow-up: the RX-shape test, the comparator idiom, comments)
 - Status: committed locally, **not pushed, no PR opened**.
-- RX carry: cherry-picked onto `rx/view-on-30e7805` (`/home/lucifer/work/solidjs/solid-view`) as `f9ee22ade` and `494698cfe`. The only conflict was the generated `RULES-INDEX.md`, which I regenerated.
+- RX carry: cherry-picked onto `rx/view-on-30e7805` (`<workspace>/solid-view`) as `f9ee22ade` and `494698cfe`. The only conflict was the generated `RULES-INDEX.md`, which I regenerated.
 
 ---
 

@@ -2,7 +2,7 @@
 
 Scope: the store compiler prototypes (`proto/store-*`), the runtime-wide "ladder" round that came after them, and the fork-only design branches (`solid-model`, `rc-frontend`, `rc-ladder`, `plan-v2-composition`, `project-dashboard`, `project-docs`, `tsx-frontend-demo`, `pr21-*`) plus the `claude/project-thread-*` branches that aren't merged. rust-solid internals and eval are covered in other files.
 
-Sources: local branches and worktrees, `origin/*` read with `git show`, `store-proto-bench/results/*.md`, and the session transcript `/tmp/rx-review/sessions/store-compiler-design.txt` (11-23 → 11-24).
+Sources: local branches and worktrees, `origin/*` read with `git show`, `store-proto-bench/results/*.md`, and the design discussion of 11-23 → 11-24.
 
 ---
 
@@ -21,7 +21,7 @@ Sources: local branches and worktrees, `origin/*` read with `git show`, `store-p
 Dev asked whether RX could compile to a smaller, faster store than Solid's proxy store, keeping the same semantics: "replace proxies with .get/.set". Then: "subtracting from the runtime, not adding". RX's spec (CP-4a, `spec/11-compiler.md`) forbids the runtime adding behaviour beyond Solid. Removing or specialising Solid's own code is allowed. A Fable orchestrator ran the work, with Grok subagents doing the grunt work.
 
 ### Physical layout
-| variant | Solid worktree (`~/work/solidjs/`) | RX worktree | Solid diff | RX diff |
+| variant | Solid worktree (`<workspace>/`) | RX worktree | Solid diff | RX diff |
 |---|---|---|---|---|
 | baseline | `store-proto-base` | `rx-store-proto-base` | none (= main `30e7805eb`) | none (`ref/package.json` only, uncommitted) |
 | **A** core/proxy split | `store-proto-core` | `rx-store-proto-core` | 7 files +209/−61 | `emit.ts`, new `store-ops.ts`, rt*.ts (~160 lines) |
@@ -33,7 +33,7 @@ Dev asked whether RX could compile to a smaller, faster store than Solid's proxy
 | 4 slots | `store-proto-slots` | `rx-store-proto-slots` | 6 files +68/−9 | +18/−7 |
 | combined 1+2+3 | `store-proto-combined` | `rx-store-proto-combined` | 7 files +372/−110 | 10 files +181/−40 |
 
-- The `store-proto-*` dirs are worktrees of `~/work/active/research/solidjs`, a Solid clone.
+- The `store-proto-*` dirs are worktrees of a local Solid clone.
 - `store-proto-bench` is its own git repo on branch `proto/store-bench`, with one commit, `16376f6`. It holds:
   - the harnesses: `rx-bench.ts`, `rx-run.mjs`, `solid-bench.mjs`, `solid-run.mjs`, `sizes.mjs`, `rx-bundle.ts`;
   - the differential fuzz, `fuzz/fuzz.mjs`, with shrinkers;
@@ -88,7 +88,7 @@ Latest raw tables are `results/rx-2026-11-24T02-02-58-117Z.md`, `solid-2026-11-2
    - The briefed design (nodes made up front) fails 27 Solid store tests. Solid relies on "a key nobody read has no node".
    - The lazy version saves 12% memory, but **effect order changes in 167 of 4500 fuzz seeds**. The order is all that changes: nodes are walked in shape order instead of creation order. That breaks parity, so slots were dropped.
 
-**Recommendation (orchestrator, endorsed in session):** take **A plus feature switches** to Ryan first. Offer site caches only as an opt-in for deep fixed paths. Drop writes as a standalone item, and drop slots.
+**Recommendation:** take **A plus feature switches** to Ryan first. Offer site caches only as an opt-in for deep fixed paths. Drop writes as a standalone item, and drop slots.
 
 **Open questions for Ryan:**
 - whether seven new exports plus the `mapArray` target input is acceptable surface;
@@ -164,7 +164,7 @@ The orchestrator therefore timeboxed the sync core and moved weight to switches.
 - 11 suspected Solid rc.21 bugs, drafted in `docs/scratch/solid-rc21-issues.md` with repros. None filed, and none rerun on current Solid.
 - Plain `git push` doesn't work in the sandbox. Commits only land via `tembo commit`.
 
-**Where it's going:** the base for rc-frontend, rc-ladder and plan-v2-composition. In the store session, Dev's orchestrator planned to reuse its fuzzers as conformance tests for a tiered JS runtime. That makes solid-model the oracle for the runtime ladder, not just for Rust.
+**Where it's going:** the base for rc-frontend, rc-ladder and plan-v2-composition. The store work planned to reuse its fuzzers as conformance tests for a tiered JS runtime. That makes solid-model the oracle for the runtime ladder, not just for Rust.
 
 ---
 
@@ -229,7 +229,7 @@ It is opt-in through `compose`, and plans without a v2.3 form are byte-identical
 - Frames (v2.2) isn't unified with composition.
 - The Chromium frames tests weren't run.
 
-**Next, as the user recommended:** follow the app's imports, then prop defaults, then rest props. Then rebase `rc-ladder` onto this branch.
+**Next:** follow the app's imports, then prop defaults, then rest props. Then rebase `rc-ladder` onto this branch.
 
 ---
 
@@ -241,7 +241,7 @@ These are tooling and handoff branches, not experiments.
   - Node built-ins only, with `server.mjs` on 127.0.0.1:4173.
   - It collects git and GitHub state, runs gates in place on clean worktrees, and caches results per SHA.
   - `notes.json` is the narrative state: goal, milestones, findings, decisions, next.
-  - Its paths are hard-coded to the Mac (`/Users/devagr/rx-tsx-refresh`), so it went stale after the move to the Tembo sandbox. A copy was later folded into `solid-model/dashboard/`.
+  - Its paths are hard-coded to the Mac (a path on another machine), so it went stale after the move to the Tembo sandbox. A copy was later folded into `solid-model/dashboard/`.
 - **`project-docs`** is the 11-08 handoff plus `scratch/` research notes:
   - slice 1 Solid scheduler traces;
   - a compiler architecture review;

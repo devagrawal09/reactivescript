@@ -1,8 +1,8 @@
 # Round 2 — Tracker — browser (Map view) tester
 
 **Outcome:** all 10 spec items work and were verified in the running app (headless Chromium, 1440×900, screenshots in
-`/tmp/r2-browser/001…080`). `pnpm build`, `pnpm typecheck` and `pnpm test` (6 vitest tests) all pass. App:
-`~/work/solidjs/rx-r2-browser`, 8 `.rx` modules (App, data, Sidebar, IssueList, CreateIssue, IssueDetail, Comments, ServerBadge)
+kept locally, not published). `pnpm build`, `pnpm typecheck` and `pnpm test` (6 vitest tests) all pass. App:
+`<workspace>/rx-r2-browser`, 8 `.rx` modules (App, data, Sidebar, IssueList, CreateIssue, IssueDetail, Comments, ServerBadge)
 plus `server.ts`/`browser.ts` with `.d.rx`, 5 local commits. **Time:** 19:44 → 20:03 to done-and-verified (~20 min), plus a
 late fix. **Late:** after the linked `rx-integ` builds changed (~20:35), all 6 tests fail on the *old* passing commit too
 ("createComponent: expected a component function but got undefined"); build/typecheck still pass. **Iterations:** 6 builds, 4 typechecks (2 red),
