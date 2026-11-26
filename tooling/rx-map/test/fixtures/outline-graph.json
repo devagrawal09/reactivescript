@@ -3,7 +3,7 @@
     "test/fixtures/outline.rx"
   ],
   "absModules": [
-    "/home/lucifer/work/solidjs/rx-map-layout/tooling/rx-map/test/fixtures/outline.rx"
+    null
   ],
   "nodes": [
     {

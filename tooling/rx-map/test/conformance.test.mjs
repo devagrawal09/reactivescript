@@ -13,7 +13,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const pkg = resolve(here, "..");
 const repo = resolve(pkg, "../..");
 const rxc = process.env.RXC
-  ?? [resolve(repo, "compiler/target/release/rxc"), "/home/lucifer/work/solidjs/reactivescript/compiler/target/release/rxc"].find(existsSync);
+  ?? [resolve(repo, "compiler/target/release/rxc")].find(existsSync);
 
 const fixtures = readdirSync(resolve(here, "fixtures")).filter(f => f.endsWith(".json")).sort().map(f => {
   const g = JSON.parse(readFileSync(resolve(here, "fixtures", f), "utf8"));

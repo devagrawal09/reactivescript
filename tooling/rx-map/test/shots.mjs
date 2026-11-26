@@ -18,8 +18,8 @@ if (process.argv.length !== 3) {
 }
 const outdir = resolve(process.argv[2]);
 const repo = fileURLToPath(new URL("../../..", import.meta.url));
-const { chromium } = createRequire("/home/lucifer/.npm/_npx/e41f203b7505f1fb/node_modules/")("playwright");
-const executablePath = process.env.CHROME ?? "/home/lucifer/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell";
+const { chromium } = createRequire(process.env.PLAYWRIGHT_DIR ?? import.meta.url)("playwright");
+const executablePath = process.env.CHROME;
 const rxc = process.env.RXC ?? [resolve(repo, "compiler/target/release/rxc"), resolve(repo, "compiler/target/debug/rxc")].find(existsSync) ?? "rxc";
 const graphOf = entry => {
   const model = JSON.parse(execFileSync(rxc, ["model", entry], { cwd: repo, encoding: "utf8", maxBuffer: 1 << 28 }));

@@ -41,6 +41,8 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Solid at ref's pin (ref/SOLID_NEXT), which ref/ and the map page build against
+        run: sh ref/scripts/solid-next.sh && npm --prefix ref ci
       - name: Solid with openView, at the pinned commit
         run: |
           repo=$(node -p 'require("./tooling/rx-map/solid-view.json").repo')
@@ -54,7 +56,7 @@ jobs:
       - name: Playwright's Chromium
         working-directory: tooling/rx-map
         run: |
-          npm install --no-save playwright
+          npm install --no-save playwright ../../compiler   # this checkout's compiler, not the published one
           npx playwright install --with-deps chromium
       - name: npm test (the real-host suite is required here)
         working-directory: tooling/rx-map
