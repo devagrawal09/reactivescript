@@ -49,7 +49,7 @@ export type Step =
 export type View =
   /** v2.3 (PLAN-V2.md, "v2.3: composition"): an element with a value attribute lists every attribute in `attrs`, in
    *  source order, and has no `events`. */
-  | { kind: 'element'; tag: string; attrs?: Attr[]; events: { name: string; steps: Step[] }[]; children: View[] }
+  | { kind: 'element'; tag: string; attrs?: Attr[]; events: { name: string; steps: Step[]; param?: string }[]; children: View[] }
   /** v2.3: an application of a component of the plan (`createComponent(Name, props)`). */
   | { kind: 'component'; name: string; props: PropArg[]; children?: View[] }
   /** v2.3: `{props.children}`, an element child: whatever the site passed, inserted as given. */
@@ -69,7 +69,7 @@ export type Host = { name: string; params: HostType[]; returns: string; pure?: t
 /** v2.3: an element attribute, a value or an event handler. A value the compiler sees as static (no call or member
  *  access in the TSX twin) is a prop of createElement with the events; the others are set by the template's one
  *  attribute effect (PLAN-V2.md, "v2.3: composition"). */
-export type Attr = { name: string; value: Expression } | { name: string; steps: Step[] };
+export type Attr = { name: string; value: Expression } | { name: string; steps: Step[]; param?: string };
 /** v2.3: an argument at a component site: a value (a getter when dynamic), a callback (its parameters are locals of its
  *  steps), an action of the parent passed by name, or one of the parent's own function props passed on. */
 export type PropArg =
@@ -265,6 +265,10 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
           if (e.op === '!') return { op: 'not', value: expression(e.e, s, locals) };
           throw new Error('unsupported operator ' + e.op);
         case 'if': return { op: 'cond', test: expression(e.c, s, locals), then: expression(e.t, s, locals), else: expression(e.f, s, locals) };
+        // createOptimistic(value): a constant seed the optimistic source reverts to.
+        case 'peek':
+          if (e.e.k !== 'lit') throw new Error('createOptimistic takes a function or a constant');
+          return expression(e.e, s, locals);
         case 'pending': case 'latest':
           if (!opts.async) throw new Error('unsupported expression ' + e.k);
           v21 = true;
@@ -465,13 +469,21 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
       if (actionInference(stmts).trigger) return [lift(stmts, s)];
       return steps(stmts, s, locals, false);
     };
-    const handler = (tag: string, a: { name: string; e: Expr }, r: number, locals: Locals): { name: string; steps: Step[] } => {
+    const handler = (tag: string, a: { name: string; e: Expr }, r: number, locals: Locals): { name: string; steps: Step[]; param?: string } => {
       if (!/^on[A-Z]/.test(a.name) || a.e.k !== 'fn' || (a.e.params.length && !opts.compose)) throw new Error('attributes other than parameterless event handlers are outside plan v2: ' + a.name);
       const c = take('handler', at(tag, a.name), r);
-      // v2.3: an event handler may take the event it never reads (`(e) => …`); the plan cannot carry an event object.
+      // v2.3: an event handler may take the event (`(e) => …`). One that reads it (DOM input) reads only
+      // `e.target.value` / `e.currentTarget.value`, the text an input event carries, and is a plain handler.
       if (a.e.params.length) {
-        if (mentions(a.e, new Set(a.e.params))) throw new Error('an event handler that reads its event is outside plan v2.3: ' + tag + ' ' + a.name);
         v23 = true;
+        if (mentions(a.e, new Set(a.e.params))) {
+          const param = a.e.params[0];
+          if (a.e.params.length > 1) throw new Error('an event handler takes one event: ' + tag + ' ' + a.name);
+          if (model.symbols.some(x => x.name === param) || locals.has(param)) throw new Error('an event parameter shadows a resolved name: ' + param);
+          const stmts: Stmt[] = a.e.stmts ?? [{ k: 'expr', e: a.e.body }];
+          if (stmts.length === 1 && stmts[0].k === 'action' || actionInference(stmts).trigger) throw new Error('a handler that reads its event is a plain handler: call an action with what it reads (' + tag + ' ' + a.name + ')');
+          return { name: a.name, param, steps: steps(stmts, seen(c), new Map(locals).set(param, { op: 'local', name: param }), false) };
+        }
       }
       return { name: a.name, steps: handlerSteps(c, a.e, locals) };
     };
@@ -564,7 +576,7 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
           });
           const children = markup(m.children, r, locals);
           if (attrs.some(a => 'value' in a)) { v23 = true; out.push({ kind: 'element', tag: m.tag, attrs, events: [], children }); }
-          else out.push({ kind: 'element', tag: m.tag, events: attrs as { name: string; steps: Step[] }[], children });
+          else out.push({ kind: 'element', tag: m.tag, events: attrs as { name: string; steps: Step[]; param?: string }[], children });
         } else if (m.k === 'mif') {
           if (m.tDecls.length || m.fDecls.length) throw new Error('branch declarations are outside plan v2');
           const when = expression(m.c, seen(take('reader', /^if$/, r)), locals);

@@ -277,8 +277,9 @@ function instance(plan: Plan, body: Body, api: Api, options: Options, props?: Re
         yield* exec(a.steps, new Map(a.params.map((p, i) => [p, args[i]])), 'action');
       }));
 
-    const handler = (steps: Step[], env: Env) => () => {
-      const run = exec(steps, new Map(env), 'handler');
+    // A handler that takes its event (DOM input) binds it as a local, read as e.target.value.
+    const handler = (steps: Step[], env: Env, param?: string) => (event?: unknown) => {
+      const run = exec(steps, param ? new Map(env).set(param, event) : new Map(env), 'handler');
       if (!run.next().done) throw new Error('a plain handler never awaits');
     };
     // v2.3: a callback prop, its parameters bound to the arguments the child calls it with.
@@ -333,8 +334,8 @@ function instance(plan: Plan, body: Body, api: Api, options: Options, props?: Re
     // v2.3: an element's static props are its events and its static attribute values, in source order.
     const declare = (l: Lowered) => {
       const statics: [string, unknown][] = l.view.attrs
-        ? l.view.attrs.flatMap((a): [string, unknown][] => 'steps' in a ? [[a.name, handler(a.steps, l.env)]] : dyn(a.value) ? [] : [[a.name, evaluate(a.value, l.env)]])
-        : l.view.events.map(e => [e.name, handler(e.steps, l.env)]);
+        ? l.view.attrs.flatMap((a): [string, unknown][] => 'steps' in a ? [[a.name, handler(a.steps, l.env, a.param)]] : dyn(a.value) ? [] : [[a.name, evaluate(a.value, l.env)]])
+        : l.view.events.map(e => [e.name, handler(e.steps, l.env, e.param)]);
       l.node = statics.length ? createElement(l.view.tag, Object.fromEntries(statics)) : createElement(l.view.tag);
       const multi = l.view.children.length > 1;
       l.view.children.forEach((c, i) => {
