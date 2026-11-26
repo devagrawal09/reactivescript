@@ -333,3 +333,30 @@ fn the_server_renderer_renders_plan_v21_to_a_string() {
         "<section _hk=1><!--$--><i _hk=2000>Loading issues&#8230;</i><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"200\"]=\"$$f\";</script>"
     );
 }
+
+/// An optimistic source over an async memo, declared before the memo it reads in the plan's
+/// source list, mounts; a constant `createOptimistic(false)` reverts to its seed.
+#[test]
+fn an_optimistic_source_over_an_async_memo_mounts() {
+    use rust_solid::plan_v2::{json_value, App};
+    let plan: Plan = serde_json::from_value(fixture("optimistic-over-async.plan.json")).unwrap();
+    let mut app = App::mount_unlogged(plan).unwrap();
+    app.turn();
+    let root = app.host.borrow().root();
+    let frame = |app: &App| app.host.borrow().frame(root);
+    assert_eq!(frame(&app), "idleloading");
+    let load = app.requests()[0].number;
+    let rows = json!([{"id": 1, "title": "a"}, {"id": 2, "title": "b"}]);
+    app.settle("load", load, Ok(json_value(&rows))).unwrap();
+    app.turn();
+    assert_eq!(frame(&app), "idleab");
+    let first = app.host.borrow().handlers_of(root, "click")[0];
+    app.click(first).unwrap();
+    app.turn();
+    assert_eq!(frame(&app), "savingb");
+    let drop = app.requests().iter().find(|r| r.host == "drop").unwrap().number;
+    app.settle("drop", drop, Ok(json_value(&json!(true)))).unwrap();
+    app.turn();
+    assert_eq!(frame(&app), "idleab");
+    app.check().unwrap();
+}

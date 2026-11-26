@@ -3336,55 +3336,137 @@ fn build_body(
     markup: &[View],
 ) -> Result<Value, Error> {
     let empty = Env::new();
-    for s in sources {
+    for s in sources.iter().filter(|s| s.kind != SourceKind::Optimistic) {
+        let v = eval(rt, c, &s.seed, &empty)?;
         let b = match s.kind {
-            SourceKind::Signal => {
-                let v = eval(rt, c, &s.seed, &empty)?;
-                Binding::Signal(rt.signal_value(v))
-            }
-            SourceKind::Store => {
-                let v = eval(rt, c, &s.seed, &empty)?;
-                Binding::Store(rt.create_store(v, false))
-            }
-            SourceKind::Optimistic => {
+            SourceKind::Store => Binding::Store(rt.create_store(v, false)),
+            _ => Binding::Signal(rt.signal_value(v)),
+        };
+        c.names.borrow_mut().insert(s.name.clone(), b);
+    }
+    // An optimistic source and a memo compute when made, so each comes after what it reads
+    // (`createOptimistic(() => list())` over an async memo, a memo over the optimistic list).
+    for d in derived_order(sources, memos) {
+        match d {
+            Derived::Optimistic(s) => {
                 let (seed, c2) = (s.seed.clone(), c.clone());
                 let body: BodyFn = Rc::new(move |rt: &mut Runtime, _| {
                     eval(rt, &c2, &seed, &Env::new()).map(Out::Value)
                 });
-                Binding::Optimistic(rt.optimistic_memo(body, None))
+                let b = Binding::Optimistic(rt.optimistic_memo(body, None));
+                c.names.borrow_mut().insert(s.name.clone(), b);
             }
-        };
-        c.names.borrow_mut().insert(s.name.clone(), b);
-    }
-    for m in memos {
-        if let Some(call) = &m.call {
-            // v2.1: `createMemo(() => host(...args))`: each computation
-            // evaluates the arguments (tracked) and issues one new request,
-            // whose promise is the memo's flight (`handleAsync`).
-            let (call, c2) = (call.clone(), c.clone());
-            let body: BodyFn = Rc::new(move |rt: &mut Runtime, _| {
-                let mut values = vec![];
-                for a in &call.args {
-                    values.push(eval(rt, &c2, a, &Env::new())?);
-                }
-                let (flight, _) = request(&c2, &call.host, values)?;
-                Ok(Out::Flight(flight))
-            });
-            let n = rt.memo_with(body, None, false);
-            c.names
-                .borrow_mut()
-                .insert(m.name.clone(), Binding::Async(n));
-            continue;
+            Derived::Memo(m) => build_memo(rt, c, m),
         }
-        let (value, c2) = (m.value.clone().expect("validated"), c.clone());
-        let body: BodyFn =
-            Rc::new(move |rt: &mut Runtime, _| eval(rt, &c2, &value, &Env::new()).map(Out::Value));
-        let n = rt.memo_with(body, None, false);
-        c.names
-            .borrow_mut()
-            .insert(m.name.clone(), Binding::Memo(n));
     }
     fragment(rt, c, markup, &empty)
+}
+
+enum Derived<'a> {
+    Optimistic(&'a Source),
+    Memo(&'a Memo),
+}
+
+/// Optimistic sources and memos, each after the derived values it reads; declaration order
+/// otherwise (and for a cycle, which the checker refuses).
+fn derived_order<'a>(sources: &'a [Source], memos: &'a [Memo]) -> Vec<Derived<'a>> {
+    let mut left: Vec<(&str, Derived<'a>, Vec<String>)> = sources
+        .iter()
+        .filter(|s| s.kind == SourceKind::Optimistic)
+        .map(|s| (s.name.as_str(), Derived::Optimistic(s), reads_of(std::slice::from_ref(&s.seed))))
+        .chain(memos.iter().map(|m| {
+            let mut exprs: Vec<&Expr> = m.value.iter().collect();
+            exprs.extend(m.call.iter().flat_map(|c| c.args.iter()));
+            let mut out = vec![];
+            for e in exprs {
+                reads(e, &mut out);
+            }
+            (m.name.as_str(), Derived::Memo(m), out)
+        }))
+        .collect();
+    let mut out = Vec::with_capacity(left.len());
+    while !left.is_empty() {
+        let pending: HashSet<&str> = left.iter().map(|(n, _, _)| *n).collect();
+        let ready = left
+            .iter()
+            .position(|(n, _, deps)| deps.iter().all(|d| d == n || !pending.contains(d.as_str())))
+            .unwrap_or(0);
+        out.push(left.remove(ready).1);
+    }
+    out
+}
+
+fn reads_of(exprs: &[Expr]) -> Vec<String> {
+    let mut out = vec![];
+    for e in exprs {
+        reads(e, &mut out);
+    }
+    out
+}
+
+/// The sources and memos an expression reads.
+fn reads(e: &Expr, out: &mut Vec<String>) {
+    match e {
+        Expr::Read { source } => out.push(source.clone()),
+        Expr::Array { items } => items.iter().for_each(|x| reads(x, out)),
+        Expr::Object { fields } => fields.iter().for_each(|f| reads(&f.value, out)),
+        Expr::Get { object: x, .. }
+        | Expr::Length { array: x }
+        | Expr::Not { value: x }
+        | Expr::Pending { value: x }
+        | Expr::Latest { value: x } => reads(x, out),
+        Expr::Filter { array, body, .. } | Expr::Map { array, body, .. } | Expr::FindIndex { array, body, .. } => {
+            reads(array, out);
+            reads(body, out);
+        }
+        Expr::Add { left, right }
+        | Expr::Eq { left, right }
+        | Expr::Ne { left, right }
+        | Expr::Lt { left, right }
+        | Expr::Le { left, right }
+        | Expr::Gt { left, right }
+        | Expr::Ge { left, right }
+        | Expr::And { left, right }
+        | Expr::Or { left, right } => {
+            reads(left, out);
+            reads(right, out);
+        }
+        Expr::Cond { test, then, otherwise } => {
+            reads(test, out);
+            reads(then, out);
+            reads(otherwise, out);
+        }
+        Expr::Eval { code, bindings, .. } => {
+            reads(code, out);
+            out.extend(bindings.iter().map(|b| b.target.clone()));
+        }
+        Expr::Literal { .. } | Expr::Local { .. } | Expr::Prop { .. } => {}
+    }
+}
+
+fn build_memo(rt: &mut Runtime, c: &C, m: &Memo) {
+    if let Some(call) = &m.call {
+        // v2.1: `createMemo(() => host(...args))`: each computation
+        // evaluates the arguments (tracked) and issues one new request,
+        // whose promise is the memo's flight (`handleAsync`).
+        let (call, c2) = (call.clone(), c.clone());
+        let body: BodyFn = Rc::new(move |rt: &mut Runtime, _| {
+            let mut values = vec![];
+            for a in &call.args {
+                values.push(eval(rt, &c2, a, &Env::new())?);
+            }
+            let (flight, _) = request(&c2, &call.host, values)?;
+            Ok(Out::Flight(flight))
+        });
+        let n = rt.memo_with(body, None, false);
+        c.names.borrow_mut().insert(m.name.clone(), Binding::Async(n));
+        return;
+    }
+    let (value, c2) = (m.value.clone().expect("validated"), c.clone());
+    let body: BodyFn =
+        Rc::new(move |rt: &mut Runtime, _| eval(rt, &c2, &value, &Env::new()).map(Out::Value));
+    let n = rt.memo_with(body, None, false);
+    c.names.borrow_mut().insert(m.name.clone(), Binding::Memo(n));
 }
 
 /// A mounted v2 plan: the runtime, the recording host and the mount.

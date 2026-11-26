@@ -1,0 +1,245 @@
+{
+  "version": 2.1,
+  "component": "Opt",
+  "hosts": [
+    {
+      "name": "drop",
+      "params": [
+        "number"
+      ],
+      "returns": "boolean"
+    },
+    {
+      "name": "load",
+      "params": [],
+      "returns": "{ id: number, title: string }[]",
+      "pure": true
+    }
+  ],
+  "sources": [
+    {
+      "name": "shown",
+      "kind": "optimistic",
+      "seed": {
+        "op": "read",
+        "source": "list"
+      }
+    },
+    {
+      "name": "busy",
+      "kind": "optimistic",
+      "seed": {
+        "op": "literal",
+        "value": false
+      }
+    }
+  ],
+  "memos": [
+    {
+      "name": "list",
+      "await": {
+        "host": "load",
+        "args": []
+      }
+    }
+  ],
+  "actions": [
+    {
+      "name": "remove",
+      "params": [
+        "id"
+      ],
+      "steps": [
+        {
+          "op": "optimistic",
+          "source": "shown",
+          "updater": {
+            "param": "xs",
+            "body": {
+              "op": "filter",
+              "array": {
+                "op": "local",
+                "name": "xs"
+              },
+              "param": "x",
+              "body": {
+                "op": "ne",
+                "left": {
+                  "op": "get",
+                  "object": {
+                    "op": "local",
+                    "name": "x"
+                  },
+                  "key": "id"
+                },
+                "right": {
+                  "op": "local",
+                  "name": "id"
+                }
+              }
+            }
+          }
+        },
+        {
+          "op": "optimistic",
+          "source": "busy",
+          "value": {
+            "op": "literal",
+            "value": true
+          }
+        },
+        {
+          "op": "try",
+          "body": [
+            {
+              "op": "await",
+              "host": "drop",
+              "args": [
+                {
+                  "op": "local",
+                  "name": "id"
+                }
+              ],
+              "bind": "$await0"
+            }
+          ],
+          "catch": [
+            {
+              "op": "optimistic",
+              "source": "busy",
+              "value": {
+                "op": "literal",
+                "value": false
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "main",
+      "events": [],
+      "children": [
+        {
+          "kind": "element",
+          "tag": "p",
+          "events": [],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "cond",
+                "test": {
+                  "op": "read",
+                  "source": "busy"
+                },
+                "then": {
+                  "op": "literal",
+                  "value": "saving"
+                },
+                "else": {
+                  "op": "literal",
+                  "value": "idle"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "errored",
+          "fallback": [
+            {
+              "kind": "element",
+              "tag": "p",
+              "events": [],
+              "children": [
+                {
+                  "kind": "text",
+                  "value": {
+                    "op": "literal",
+                    "value": "failed"
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "loading",
+              "fallback": [
+                {
+                  "kind": "element",
+                  "tag": "p",
+                  "events": [],
+                  "children": [
+                    {
+                      "kind": "text",
+                      "value": {
+                        "op": "literal",
+                        "value": "loading"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "children": [
+                {
+                  "kind": "for",
+                  "each": {
+                    "op": "read",
+                    "source": "shown"
+                  },
+                  "item": "x",
+                  "key": "identity",
+                  "children": [
+                    {
+                      "kind": "element",
+                      "tag": "button",
+                      "events": [
+                        {
+                          "name": "onClick",
+                          "steps": [
+                            {
+                              "op": "call",
+                              "action": "remove",
+                              "args": [
+                                {
+                                  "op": "get",
+                                  "object": {
+                                    "op": "local",
+                                    "name": "x"
+                                  },
+                                  "key": "id"
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "children": [
+                        {
+                          "kind": "text",
+                          "value": {
+                            "op": "get",
+                            "object": {
+                              "op": "local",
+                              "name": "x"
+                            },
+                            "key": "title"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
