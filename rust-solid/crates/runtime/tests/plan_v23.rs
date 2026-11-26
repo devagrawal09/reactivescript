@@ -147,3 +147,32 @@ fn the_server_renderer_refuses_plan_v23_with_a_typed_error() {
         "plan v2.3 (composition) is not ported to the server renderer"
     );
 }
+
+#[test]
+fn a_handler_that_takes_its_event_reads_the_inputs_new_text() {
+    let field = |key: &str, object: J| json!({ "op": "get", "object": object, "key": key });
+    let plan: Plan = serde_json::from_value(json!({
+        "version": 2.3, "component": "App", "hosts": [],
+        "sources": [{ "name": "draft", "kind": "signal", "seed": { "op": "literal", "value": "" } }],
+        "memos": [], "actions": [],
+        "markup": [{ "kind": "element", "tag": "div", "events": [], "children": [
+            { "kind": "element", "tag": "input", "events": [], "children": [], "attrs": [
+                { "name": "value", "value": { "op": "read", "source": "draft" } },
+                { "name": "onInput", "param": "e", "steps": [{ "op": "write", "source": "draft",
+                    "value": field("value", field("target", json!({ "op": "local", "name": "e" }))) }] }
+            ]},
+            { "kind": "text", "value": { "op": "read", "source": "draft" } }
+        ]}]
+    }))
+    .unwrap();
+    let mut app = rust_solid::plan_v2::App::mount(plan).unwrap();
+    app.turn();
+    let input = {
+        let h = app.host.borrow();
+        h.handlers_of(h.root(), "input")[0]
+    };
+    app.dispatch(input, "input", Some("milk")).unwrap();
+    app.turn();
+    assert_eq!(app.frame(), "milk");
+    assert_eq!(app.host.borrow().prop(input, "value").to_js_string().as_deref(), Some("milk"));
+}

@@ -192,6 +192,10 @@ struct TNode {
     listeners: Vec<(String, Listener)>,
     /// `prevProps` of the event props (what `assignProp` returned).
     assigned: Vec<(Rc<str>, Assigned)>,
+    /// For a host that mirrors this tree: the clock when this node or
+    /// anything under it last changed, and when its child list did.
+    ver: u64,
+    kver: u64,
 }
 
 impl Default for TNode {
@@ -207,6 +211,8 @@ impl Default for TNode {
             props: vec![],
             listeners: vec![],
             assigned: vec![],
+            ver: 0,
+            kver: 0,
         }
     }
 }
@@ -227,6 +233,19 @@ pub struct TreeRenderer {
     delegation: Delegation,
     /// Tags and property names, shared (a DOM interns them too).
     names: Vec<Rc<str>>,
+    clock: u64,
+    /// Writes since the last `take_writes`, for a host that mirrors this
+    /// tree (recorded only when on).
+    writes: Option<Vec<HostWrite>>,
+}
+
+/// A write a mirroring host repeats: new text on a text node, a changed
+/// property of an element, or a changed child list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostWrite {
+    Text(Node),
+    Prop(Node),
+    Children(Node),
 }
 
 impl Default for TreeRenderer {
@@ -255,10 +274,50 @@ impl TreeRenderer {
             fn_ids: RefCell::new(HashMap::new()),
             delegation: Delegation::default(),
             names: Vec::new(),
+            clock: 0,
+            writes: None,
         }
     }
     pub fn root(&self) -> Node {
         0
+    }
+    /// Starts or stops recording [`HostWrite`]s.
+    pub fn record_writes(&mut self, on: bool) {
+        self.writes = on.then(Vec::new);
+    }
+    /// The writes recorded since the last call.
+    pub fn take_writes(&mut self) -> Vec<HostWrite> {
+        self.writes.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+    fn wrote(&mut self, w: HostWrite) {
+        if let Some(ws) = &mut self.writes {
+            ws.push(w);
+        }
+    }
+    /// Stamps `node` and its ancestors with a new version.
+    fn touch(&mut self, mut node: Node) {
+        self.clock += 1;
+        loop {
+            self.nodes[node].ver = self.clock;
+            match self.nodes[node].parent {
+                Some(p) => node = p,
+                None => break,
+            }
+        }
+    }
+    /// A mirroring host's read of a node: its tag (`None` for text), its
+    /// text, and its version. Not logged.
+    pub fn view_node(&self, node: Node) -> (Option<&str>, &Value, u64) {
+        let n = &self.nodes[node];
+        (n.tag.as_deref(), &n.text, n.ver)
+    }
+    /// A node's children, not logged.
+    pub fn view_kids(&self, node: Node) -> impl Iterator<Item = Node> + '_ {
+        self.kids(node)
+    }
+    /// The clock when `node`'s child list last changed.
+    pub fn view_kver(&self, node: Node) -> u64 {
+        self.nodes[node].kver
     }
     pub fn len(&self) -> usize {
         self.nodes.len()
@@ -319,7 +378,9 @@ impl TreeRenderer {
             }
         }
     }
-    fn new_node(&mut self, node: TNode) -> Node {
+    fn new_node(&mut self, mut node: TNode) -> Node {
+        self.clock += 1;
+        node.ver = self.clock;
         self.nodes.push(node);
         self.nodes.len() - 1
     }
@@ -366,6 +427,9 @@ impl TreeRenderer {
         }
         let n = &mut self.nodes[node];
         (n.parent, n.prev, n.next) = (None, None, None);
+        self.wrote(HostWrite::Children(p));
+        self.touch(p);
+        self.nodes[p].kver = self.clock;
     }
     /// Puts `node` (unlinked) before `reference`, or last.
     fn link(&mut self, parent: Node, node: Node, reference: Option<Node>) {
@@ -383,6 +447,9 @@ impl TreeRenderer {
         }
         let n = &mut self.nodes[node];
         (n.parent, n.prev, n.next) = (Some(parent), prev, reference);
+        self.wrote(HostWrite::Children(parent));
+        self.touch(parent);
+        self.nodes[parent].kver = self.clock;
     }
     pub fn tag(&self, node: Node) -> Option<&str> {
         self.nodes[node].tag.as_deref()
@@ -454,12 +521,33 @@ impl TreeRenderer {
         target: Node,
         ty: &str,
     ) -> Result<(), Error> {
-        let e = JsObj::new_object(vec![
+        Self::dispatch_value(rt, host, target, ty, None)
+    }
+
+    /// [`dispatch`](Self::dispatch) of an input event: the event also
+    /// carries the target's new text as `value` (what a handler that takes
+    /// its event reads as `e.target.value`), and the target holds it as
+    /// its `value` property.
+    pub fn dispatch_value(
+        rt: &mut Runtime,
+        host: &Rc<RefCell<TreeRenderer>>,
+        target: Node,
+        ty: &str,
+        value: Option<&str>,
+    ) -> Result<(), Error> {
+        if let Some(v) = value {
+            host.borrow_mut().set_expando(target, "value", Value::str(v));
+        }
+        let mut fields = vec![
             ("type".into(), Value::str(ty)),
             ("target".into(), Value::Node(target)),
             ("currentTarget".into(), Value::Undef),
             ("cancelBubble".into(), Value::Bool(false)),
-        ]);
+        ];
+        if let Some(v) = value {
+            fields.push(("value".into(), Value::str(v)));
+        }
+        let e = JsObj::new_object(fields);
         let mut path = vec![target];
         while let Some(p) = host.borrow().nodes[*path.last().unwrap()].parent {
             path.push(p);
@@ -527,6 +615,8 @@ impl Renderer for TreeRenderer {
         self.log_with(|| json!(["replaceText", node, self.enc(value)]));
         assert!(self.nodes[node].tag.is_none(), "replaceText of an element");
         self.nodes[node].text = value.clone();
+        self.wrote(HostWrite::Text(node));
+        self.touch(node);
     }
     fn set_prop(&mut self, node: Node, name: &str, value: &str) {
         self.set_property(node, name, &Value::str(value), &Value::Undef)
@@ -559,6 +649,8 @@ impl Renderer for TreeRenderer {
             }
         } else {
             self.set_expando(node, name, value.clone());
+            self.wrote(HostWrite::Prop(node));
+            self.touch(node);
         }
     }
     /// `insertNode(parent, node, anchor)`: DOM `insertBefore`.

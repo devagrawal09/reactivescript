@@ -248,6 +248,10 @@ pub struct Event {
     pub name: String,
     /// Shared: every row's handler holds the same steps.
     pub steps: Rc<[Step]>,
+    /// DOM input: the local the handler binds its event to, a record
+    /// `{ target: { value }, currentTarget: { value } }` of strings.
+    #[serde(default)]
+    pub param: Option<String>,
 }
 
 /// v2.3: an element attribute, in source order: a value (static, or
@@ -260,6 +264,9 @@ pub struct Attr {
     pub value: Option<Expr>,
     #[serde(default)]
     pub steps: Option<Rc<[Step]>>,
+    /// DOM input: an event handler's event local, as on [`Event`].
+    #[serde(default)]
+    pub param: Option<String>,
 }
 
 /// v2.3: a callback prop, its parameters bound to the child's arguments.
@@ -630,7 +637,7 @@ impl HostType {
 }
 
 /// A JSON value (already checked against its type) as fresh plain objects.
-fn json_value(v: &J) -> Value {
+pub fn json_value(v: &J) -> Value {
     match v {
         J::Number(n) => Value::Int(n.as_i64().expect("an integer")),
         J::String(s) => Value::str(s),
@@ -1282,7 +1289,7 @@ impl<'a> Check<'a> {
                         if !seen.insert(e.name.as_str()) {
                             return Err(format!("event {} repeated", e.name));
                         }
-                        self.steps(&e.steps, &mut scope.clone(), StepContext::Handler)?;
+                        self.steps(&e.steps, &mut with_param(scope, &e.param), StepContext::Handler)?;
                     }
                     if let Some(attrs) = attrs {
                         self.v23.set(true);
@@ -1305,7 +1312,7 @@ impl<'a> Check<'a> {
                                 .is_some_and(|n| n.starts_with(|f: char| f.is_ascii_uppercase()));
                             match (&a.value, &a.steps) {
                                 (None, Some(steps)) if event && identifier(&a.name) => {
-                                    self.steps(steps, &mut scope.clone(), StepContext::Handler)?
+                                    self.steps(steps, &mut with_param(scope, &a.param), StepContext::Handler)?
                                 }
                                 (Some(v), None) if !event => self.expr(v, scope, true)?,
                                 _ => {
@@ -2609,13 +2616,42 @@ fn plain(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Result<(), Error
 }
 
 /// A plain handler: its steps run synchronously, outside any transaction.
-fn handler(rt: &mut Runtime, c: &C, steps: &Rc<[Step]>, env: &Env) -> Value {
-    let (c, steps, env) = (c.clone(), steps.clone(), env.clone());
-    rt.function_with(0, move |rt: &mut Runtime, _args: &[Value]| {
+fn handler(rt: &mut Runtime, c: &C, steps: &Rc<[Step]>, env: &Env, param: &Option<String>) -> Value {
+    let (c, steps, env, param) = (c.clone(), steps.clone(), env.clone(), param.clone());
+    rt.function_with(param.is_some() as usize, move |rt: &mut Runtime, args: &[Value]| {
+            let Some(p) = &param else {
+                plain(rt, &c, &steps, &env)?;
+                return Ok(Value::Undef);
+            };
+            let mut env = env.clone();
+            env.insert(p.as_str(), event_record(args.first()));
             plain(rt, &c, &steps, &env)?;
             Ok(Value::Undef)
         },
     )
+}
+
+/// DOM input: a handler's event as a plan reads it. The host puts the
+/// target's text in the event's `value` (`TreeRenderer::dispatch_value`).
+fn event_record(e: Option<&Value>) -> Value {
+    let value = match e {
+        Some(Value::Obj(o)) => match o.get(&Key::name("value")) {
+            Value::Undef => Value::str(""),
+            v => v,
+        },
+        _ => Value::str(""),
+    };
+    let side = || Value::Obj(JsObj::new_object_keyed(vec![(Key::name("value"), value.clone())]));
+    Value::Obj(JsObj::new_object_keyed(vec![
+        (Key::name("target"), side()),
+        (Key::name("currentTarget"), side()),
+    ]))
+}
+
+fn with_param(scope: &[String], param: &Option<String>) -> Vec<String> {
+    let mut s = scope.to_vec();
+    s.extend(param.iter().cloned());
+    s
 }
 
 /// v2.3: a callback prop, its parameters bound to the child's arguments.
@@ -2778,7 +2814,7 @@ fn declare(rt: &mut Runtime, c: &C, v: &View, s: &mut Vec<usize>, env: &Env) -> 
     let node = c.u.create_element(tag);
     s.push(node);
     for e in events {
-        let f = handler(rt, c, &e.steps, env);
+        let f = handler(rt, c, &e.steps, env, &e.param);
         c.u.set_prop(node, &e.name, &f, &Value::Undef);
     }
     // v2.3: an element's static props are its events and its static
@@ -2786,7 +2822,7 @@ fn declare(rt: &mut Runtime, c: &C, v: &View, s: &mut Vec<usize>, env: &Env) -> 
     for a in attrs {
         match (&a.value, &a.steps) {
             (_, Some(steps)) => {
-                let f = handler(rt, c, steps, env);
+                let f = handler(rt, c, steps, env, &a.param);
                 c.u.set_prop(node, &a.name, &f, &Value::Undef);
             }
             (Some(e), None) if !dynamic_expr(c, e) => {
@@ -3520,6 +3556,19 @@ impl App {
         TreeRenderer::dispatch(&mut self.runtime, &self.host, node, "click")
             .map_err(|e| format!("click handler failed: {}", e.message()))?;
         self.check()
+    }
+
+    /// An event of type `ty` at `node` as the host dispatches it; an input
+    /// event carries the node's new text (`e.target.value`).
+    pub fn dispatch(&mut self, node: usize, ty: &str, value: Option<&str>) -> Result<(), String> {
+        TreeRenderer::dispatch_value(&mut self.runtime, &self.host, node, ty, value)
+            .map_err(|e| format!("{ty} handler failed: {}", e.message()))?;
+        self.check()
+    }
+
+    /// Whether `node` handles events of type `ty`.
+    pub fn handles(&self, node: usize, ty: &str) -> bool {
+        self.host.borrow().handles(node, ty)
     }
 
     /// `setStore(draft => …)` from host code, as an app's own handler
